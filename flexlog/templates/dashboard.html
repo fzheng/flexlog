@@ -14,10 +14,10 @@
     <input id="q" type="search" name="q" value="{{ query }}" placeholder="{{ "search_placeholder" | ui }}" autocomplete="off">
   </form>
 
-  {% if people %}
+  {% if rows %}
     <ul class="person-grid">
-      {% for person in people %}
-        <li>{% include "_partials/person_card.html" %}</li>
+      {% for row in rows %}
+        <li>{% with person = row.person, row = row %}{% include "_partials/person_card.html" %}{% endwith %}</li>
       {% endfor %}
     </ul>
   {% elif query %}

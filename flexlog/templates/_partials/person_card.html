@@ -1,4 +1,4 @@
-{# Renders a single person card. Caller passes `person`. #}
+{# Renders one person card. Caller passes `person` and optionally `row` (for aggregates). #}
 <a class="person-card" href="{{ url_for('people.detail', person_id=person.id) }}">
   {% include "_partials/avatar_placeholder.html" %}
   <div class="person-card-meta">
@@ -9,6 +9,13 @@
       <li>{% include "_partials/tag_chip.html" %}</li>
       {% endfor %}
     </ul>
+    {% endif %}
+    {% if row is defined and row %}
+      <p class="person-card-stats">
+        <span>{{ row.session_count }} {{ "session_count" | ui }}</span>
+        {% if row.last_session_date %}<span>{{ "last_session" | ui }} {{ row.last_session_date }}</span>{% endif %}
+        {% if row.avg_overall_score is not none %}<span>{{ "avg_score" | ui }} {{ "%.1f"|format(row.avg_overall_score) }}/5</span>{% endif %}
+      </p>
     {% endif %}
   </div>
 </a>

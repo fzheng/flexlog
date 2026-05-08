@@ -75,3 +75,23 @@ def test_dashboard_search_query_echoed_safely(client):
     body = resp.get_data(as_text=True)
     # The literal HTML must not appear unescaped
     assert "<img onerror=x>" not in body
+
+
+def test_dashboard_shows_session_aggregates(client, db_session):
+    from flexlog.services.people import create_person
+    from flexlog.services.sessions import create_session
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=4, custom_ratings={}, notes=None, links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-05-01", overall_score=5, custom_ratings={}, notes=None, links=[])
+    db_session.commit()
+
+    resp = client.get("/")
+    body = resp.get_data(as_text=True)
+    # Session count
+    assert "2 sessions" in body or "2 session" in body
+    # Last session date
+    assert "2026-05-01" in body
+    # Average overall score (4+5)/2 = 4.5
+    assert "4.5" in body
