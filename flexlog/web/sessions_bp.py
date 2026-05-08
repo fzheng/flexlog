@@ -121,6 +121,70 @@ def create(person_id: str):
 
 @sessions_bp.get("/sessions/<session_id>")
 def detail(session_id: str):
-    """STUB — full implementation in Task 6."""
     s = _session_or_404(session_id)
-    return f"<p>session {s.id} on {s.session_date}, score {s.overall_score}</p>", 200
+    enabled_ids = [d.id for d in _enabled_rating_dimensions()]
+    current, archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
+    # Build display ratings with their dimension labels
+    label_map = {d.id: d.label for d in _enabled_rating_dimensions()}
+    current_with_labels = [(rid, label_map[rid], val) for rid, val in current]
+    return render_template(
+        "sessions/detail.html",
+        person=s.person,
+        session=s,
+        current_ratings=current_with_labels,
+        archived_ratings=archived,
+    )
+
+
+@sessions_bp.get("/sessions/<session_id>/edit")
+def edit(session_id: str):
+    s = _session_or_404(session_id)
+    form = SessionForm(data={
+        "session_date": s.session_date,
+        "overall_score": s.overall_score,
+        "notes": s.notes or "",
+    })
+    enabled_ids = [d.id for d in _enabled_rating_dimensions()]
+    current_pairs, _archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
+    existing_ratings = dict(current_pairs)
+    existing_links = [{"url": li.url, "label": li.label or ""} for li in s.links]
+    return render_template(
+        "sessions/edit.html",
+        form=form,
+        person=s.person,
+        session=s,
+        rating_dimensions=_enabled_rating_dimensions(),
+        existing_ratings=existing_ratings,
+        existing_links=existing_links,
+    )
+
+
+@sessions_bp.post("/sessions/<session_id>")
+def update(session_id: str):
+    s = _session_or_404(session_id)
+    form = SessionForm()
+    rating_dimensions = _enabled_rating_dimensions()
+    if not form.validate_on_submit():
+        return render_template(
+            "sessions/edit.html",
+            form=form,
+            person=s.person,
+            session=s,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_custom_ratings_from_request(),
+            existing_links=_parse_links_from_request(),
+        ), 400
+    db = get_db()
+    try:
+        update_session(
+            db, session_id,
+            session_date=form.session_date.data,
+            overall_score=form.overall_score.data,
+            custom_ratings=_parse_custom_ratings_from_request(),
+            notes=(form.notes.data or None),
+            links=_parse_links_from_request(),
+        )
+    except SessionNotFoundError:
+        abort(404)
+    db.commit()
+    return redirect(url_for("sessions.detail", session_id=session_id))

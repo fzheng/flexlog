@@ -1,0 +1,50 @@
+{% extends "_base.html" %}
+{% block title %}New session — {{ person.alias }}{% endblock %}
+{% block content %}
+<h2>New session — {{ person.alias }}</h2>
+<form method="post" action="{{ url_for('sessions.create', person_id=person.id) }}">
+  {{ form.csrf_token }}
+  <div>
+    <label for="session_date">Date</label>
+    <input type="date" id="session_date" name="session_date" value="{{ form.session_date.data or '' }}">
+    {% for err in form.session_date.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+  </div>
+  <div>
+    <label for="overall_score">Overall score</label>
+    <input type="number" id="overall_score" name="overall_score" min="0" max="5" value="{{ form.overall_score.data if form.overall_score.data is not none else '' }}">
+    {% for err in form.overall_score.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+  </div>
+  {% if rating_dimensions %}
+    <fieldset>
+      <legend>Ratings</legend>
+      {% for dim in rating_dimensions %}
+        <label for="rating_{{ dim.id }}">{{ dim.label }}</label>
+        <input type="number" id="rating_{{ dim.id }}" name="rating_{{ dim.id }}" min="{{ dim.scale_min }}" max="{{ dim.scale_max }}" value="{{ existing_ratings.get(dim.id, '') }}">
+      {% endfor %}
+    </fieldset>
+  {% endif %}
+  <div>
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="6">{{ form.notes.data or '' }}</textarea>
+    {% for err in form.notes.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+  </div>
+  <fieldset>
+    <legend>Links</legend>
+    <div id="link-rows">
+      {% for link in existing_links %}
+      <div class="link-row">
+        <input type="url" name="link_url" value="{{ link.url or '' }}">
+        <input type="text" name="link_label" value="{{ link.label or '' }}">
+      </div>
+      {% endfor %}
+      {% if not existing_links %}
+      <div class="link-row">
+        <input type="url" name="link_url" value="">
+        <input type="text" name="link_label" value="">
+      </div>
+      {% endif %}
+    </div>
+  </fieldset>
+  <button type="submit">Save</button>
+</form>
+{% endblock %}
