@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ "new_person" | ui }} — {{ labels.app_name }}{% endblock %}
+
+{% block content %}
+<section class="form-section">
+  <h2>{{ "new_person" | ui }}</h2>
+  <form method="post" action="{{ url_for('people.create') }}" class="person-form">
+    {{ form.csrf_token }}
+    <div class="form-row">
+      <label for="alias">{{ "alias_label" | ui }}</label>
+      {{ form.alias(id="alias", autofocus=True, autocomplete="off") }}
+      {% for err in form.alias.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+    </div>
+    <div class="form-row">
+      <label for="tags">{{ "tags_label" | ui }}</label>
+      {{ form.tags(id="tags", autocomplete="off") }}
+      <p class="form-help">{{ "tags_help" | ui }}</p>
+      {% for err in form.tags.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ "save" | ui }}</button>
+      <a class="btn btn-link" href="{{ url_for('home.home') }}">{{ "cancel" | ui }}</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

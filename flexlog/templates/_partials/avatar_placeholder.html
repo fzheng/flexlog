@@ -1,0 +1,4 @@
+{# Renders a simple circular initial avatar. Used everywhere until M5. #}
+<span class="avatar-placeholder" aria-hidden="true">
+  {{ (person.alias[0] if person and person.alias else "?") | upper }}
+</span>
