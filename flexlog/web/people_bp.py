@@ -86,7 +86,9 @@ def update(person_id: str):
 @people_bp.get("/<person_id>")
 def detail(person_id: str):
     person = _person_or_404(person_id)
-    return render_template("people/detail.html", person=person)
+    from flexlog.services.sessions import list_sessions_for_person
+    sessions = list_sessions_for_person(get_db(), person_id)
+    return render_template("people/detail.html", person=person, sessions=sessions)
 
 
 @people_bp.post("/<person_id>/delete")

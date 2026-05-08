@@ -18,13 +18,23 @@
     </div>
     <div class="person-detail-actions">
       <a class="btn" href="{{ url_for('people.edit', person_id=person.id) }}">{{ "edit_person" | ui }}</a>
-      <a class="btn btn-disabled" href="#" aria-disabled="true" title="Coming in M3">{{ "add_session" | ui }}</a>
     </div>
   </header>
 
   <section class="sessions-section">
-    <h3>{{ labels.session.plural }}</h3>
-    <p class="empty-state">{{ "no_sessions_yet" | ui }}</p>
+    <header class="sessions-section-header">
+      <h3>{{ labels.session.plural }}</h3>
+      <a class="btn btn-primary" href="{{ url_for('sessions.new', person_id=person.id) }}">{{ "add_session" | ui }}</a>
+    </header>
+    {% if sessions %}
+      <ul class="session-list">
+        {% for session in sessions %}
+          {% include "_partials/session_row.html" %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state">{{ "no_sessions_yet" | ui }}</p>
+    {% endif %}
   </section>
 
   <section class="danger-zone">
