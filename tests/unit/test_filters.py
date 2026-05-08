@@ -1,0 +1,64 @@
+from unittest.mock import MagicMock
+
+import pytest
+
+from flexlog.config_loader import AppLabels, Config, Limits
+from flexlog.web.filters import (
+    BUILTIN_UI_DEFAULTS,
+    build_labels_context,
+    ui_filter,
+)
+
+
+def _config(ui_strings: dict[str, str] | None = None) -> Config:
+    return Config(
+        app=AppLabels(
+            name="Interview Log",
+            entity_singular="Guest",
+            entity_plural="Guests",
+            session_singular="Interview",
+            session_plural="Interviews",
+        ),
+        ratings=(),
+        ui_strings=ui_strings or {},
+        limits=Limits(
+            max_custom_rating_dimensions=6,
+            max_audio_files_per_session=10,
+            max_video_files_per_session=10,
+            max_photo_files_per_session=50,
+            max_upload_mb_per_file=500,
+        ),
+    )
+
+
+def test_ui_filter_returns_user_value_when_present():
+    cfg = _config({"new_person": "New Guest"})
+    assert ui_filter("new_person", cfg) == "New Guest"
+
+
+def test_ui_filter_falls_back_to_builtin_when_user_omits_key():
+    cfg = _config({})
+    assert ui_filter("new_person", cfg) == BUILTIN_UI_DEFAULTS["new_person"]
+
+
+def test_ui_filter_unknown_key_returns_key_itself():
+    cfg = _config({})
+    # Unknown key — neither user nor builtin defines it. Return the key so
+    # the missing-string is visible during development without raising.
+    assert ui_filter("totally_unknown_key", cfg) == "totally_unknown_key"
+
+
+def test_builtin_ui_defaults_includes_minimum_keys():
+    # M1 expects at least these keys to render the placeholder dashboard
+    for required in ("new_person", "empty_dashboard"):
+        assert required in BUILTIN_UI_DEFAULTS
+
+
+def test_build_labels_context_shape():
+    cfg = _config()
+    labels = build_labels_context(cfg)
+    assert labels["app_name"] == "Interview Log"
+    assert labels["entity"]["singular"] == "Guest"
+    assert labels["entity"]["plural"] == "Guests"
+    assert labels["session"]["singular"] == "Interview"
+    assert labels["session"]["plural"] == "Interviews"
