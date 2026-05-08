@@ -122,20 +122,29 @@ def file_key_for(sha256_hex: str, mime_type: str) -> str:
 def resolve_file_key(file_key: str) -> Path:
     """Resolve a file key to an absolute path under uploads/ — sandboxed.
 
-    Raises FileKeyError if the key is empty, absolute, or resolves outside
-    the uploads root (including via symlinks).
+    Raises FileKeyError if the key is empty, contains a NUL byte, is
+    absolute, resolves to the uploads root itself, or resolves outside the
+    uploads root (including via symlinks).
     """
     if not isinstance(file_key, str) or file_key == "":
         raise FileKeyError("file key is empty")
+    if "\x00" in file_key:
+        raise FileKeyError("file key contains NUL byte")
     if file_key.startswith("/") or (len(file_key) > 1 and file_key[1] == ":"):
         # Block POSIX-absolute and Windows-style absolute keys.
         raise FileKeyError(f"file key must be relative, got absolute: {file_key!r}")
     base = uploads_dir().resolve()
-    candidate = (base / file_key).resolve()
     try:
-        candidate.relative_to(base)
+        candidate = (base / file_key).resolve()
+    except (OSError, ValueError) as exc:
+        raise FileKeyError(f"file key {file_key!r} could not be resolved") from exc
+    try:
+        rel = candidate.relative_to(base)
     except ValueError as exc:
         raise FileKeyError(
             f"file key {file_key!r} escapes uploads sandbox"
         ) from exc
+    if rel == Path("."):
+        # Resolved path equals uploads root — not a file inside it.
+        raise FileKeyError(f"file key {file_key!r} resolves to uploads root")
     return candidate

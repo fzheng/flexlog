@@ -59,3 +59,35 @@ def test_create_app_debug_enabled_via_env(monkeypatch, tmp_data_dir):
     monkeypatch.setenv("FLEXLOG_DEBUG", "1")
     app = create_app()
     assert app.debug is True
+
+
+def test_configure_logging_attaches_handler_to_named_logger(tmp_data_dir):
+    """create_app() should attach a handler to the 'flexlog' logger."""
+    import logging
+
+    from flexlog.app import LOGGER_NAME
+
+    logger = logging.getLogger(LOGGER_NAME)
+    # Drop any handlers that previous tests left behind so we observe the
+    # attach-once behavior cleanly.
+    logger.handlers.clear()
+
+    create_app()
+    assert len(logger.handlers) == 1
+
+
+def test_configure_logging_is_idempotent(tmp_data_dir):
+    """Calling create_app() twice must not double-attach the handler."""
+    import logging
+
+    from flexlog.app import LOGGER_NAME
+
+    logger = logging.getLogger(LOGGER_NAME)
+    logger.handlers.clear()
+
+    create_app()
+    handlers_after_first = len(logger.handlers)
+    create_app()
+    handlers_after_second = len(logger.handlers)
+    assert handlers_after_first == 1
+    assert handlers_after_second == 1

@@ -53,11 +53,19 @@ def create_app() -> Flask:
     return app
 
 
+LOGGER_NAME = "flexlog"
+_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+
+
 def _configure_logging() -> None:
-    # stdlib logging to stderr at INFO. Idempotent — only configure once.
-    root = logging.getLogger()
-    if not root.handlers:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        )
+    """Attach a stderr handler at INFO to the named flexlog logger.
+
+    Idempotent — only attaches a handler once per process.
+    """
+    logger = logging.getLogger(LOGGER_NAME)
+    if logger.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)

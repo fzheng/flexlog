@@ -1,9 +1,7 @@
-import os
 from pathlib import Path
 
 import pytest
 
-from flexlog import paths
 from flexlog.paths import (
     DataDirError,
     config_path,
@@ -95,8 +93,6 @@ def test_ensure_layout_is_idempotent(monkeypatch, tmp_path):
 
 # --- File-key API ---
 
-import pytest
-
 from flexlog.paths import FileKeyError, file_key_for, resolve_file_key
 
 VALID_SHA = "abcdef0123456789" * 4  # 64 hex chars
@@ -180,3 +176,43 @@ def test_resolve_file_key_empty_rejected(monkeypatch, tmp_path):
     ensure_layout()
     with pytest.raises(FileKeyError, match="empty"):
         resolve_file_key("")
+
+
+def test_resolve_file_key_nul_byte_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
+    ensure_layout()
+    with pytest.raises(FileKeyError, match="NUL"):
+        resolve_file_key("aa/bb/foo\x00.jpg")
+
+
+def test_resolve_file_key_dot_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
+    ensure_layout()
+    with pytest.raises(FileKeyError, match="uploads root"):
+        resolve_file_key(".")
+
+
+def test_resolve_file_key_dot_slash_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
+    ensure_layout()
+    with pytest.raises(FileKeyError, match="uploads root"):
+        resolve_file_key("./")
+
+
+def test_resolve_file_key_oserror_from_resolve_wrapped(monkeypatch, tmp_path):
+    """If Path.resolve() raises OSError (e.g. permission/IO error), it must
+    be wrapped as FileKeyError rather than propagating raw."""
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
+    ensure_layout()
+
+    original_resolve = Path.resolve
+
+    def _bad_resolve(self, strict=False):
+        # Only intercept the candidate path construction, not the base.
+        if str(self).endswith("bad_key.jpg"):
+            raise OSError("simulated filesystem error")
+        return original_resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", _bad_resolve)
+    with pytest.raises(FileKeyError, match="could not be resolved"):
+        resolve_file_key("bad_key.jpg")

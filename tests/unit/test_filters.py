@@ -62,3 +62,17 @@ def test_build_labels_context_shape():
     assert labels["entity"]["plural"] == "Guests"
     assert labels["session"]["singular"] == "Interview"
     assert labels["session"]["plural"] == "Interviews"
+
+
+def test_builtin_ui_defaults_covers_default_config_keys():
+    """Every key shipped in DEFAULT_CONFIG_JSON's ui_strings must also have a
+    BUILTIN_UI_DEFAULTS fallback so the missing-key case never shows raw key strings.
+    """
+    import json
+
+    from flexlog.config_loader import DEFAULT_CONFIG_JSON
+
+    default_keys = set(json.loads(DEFAULT_CONFIG_JSON)["ui_strings"].keys())
+    builtin_keys = set(BUILTIN_UI_DEFAULTS.keys())
+    missing = default_keys - builtin_keys
+    assert not missing, f"BUILTIN_UI_DEFAULTS missing fallbacks for: {missing}"
