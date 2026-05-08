@@ -67,6 +67,13 @@ restore: place the directory on the new machine, set `FLEXLOG_DATA_DIR`
 to its absolute path, and run `flexlog`. Both the SQLite database (M2+)
 and uploaded media (M4+) are inside that directory.
 
+## Features (M2)
+
+- Add, edit, delete people (delete requires typing the alias)
+- Global tags shared across all people
+- Dashboard with search by alias or tag
+- Default avatar placeholder (real avatar upload comes in M5)
+
 ## Run the test suite
 
 ```bash
@@ -81,7 +88,7 @@ suite fails.
 
 Subsequent milestones:
 
-- M2: people + tags
+- **M2 (✓ shipped):** people + tags + dashboard
 - M3: sessions + ratings + notes
 - M4: media + Media Library + hash dedup
 - M5: avatar cropper + sort + polish
