@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flexlog"
+version = "0.1.0"
+description = "Local-only single-user 1v1 session journal"
+requires-python = ">=3.11"
+dependencies = [
+    "Flask>=3.0,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+flexlog = "flexlog.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["flexlog*"]
+
+[tool.setuptools.package-data]
+flexlog = ["templates/*.html", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=flexlog --cov-report=term-missing --cov-fail-under=85 -ra"
+
+[tool.coverage.run]
+branch = false
+source = ["flexlog"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
