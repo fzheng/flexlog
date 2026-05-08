@@ -73,3 +73,69 @@ def ensure_layout() -> None:
     (data_dir() / "data").mkdir(parents=True, exist_ok=True)
     uploads_dir().mkdir(parents=True, exist_ok=True)
     tmp_uploads_dir().mkdir(parents=True, exist_ok=True)
+
+
+# --- File-key API ---
+
+# MIME → extension allowlist. Must match spec §4.4.
+_MIME_TO_EXT: dict[str, str] = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+    "audio/mp4": "m4a",
+    "audio/x-m4a": "m4a",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+}
+
+_HEX = set("0123456789abcdef")
+
+
+class FileKeyError(ValueError):
+    """Raised when a file key is malformed or escapes the uploads sandbox."""
+
+
+def file_key_for(sha256_hex: str, mime_type: str) -> str:
+    """Produce the canonical file key for a uniquely-identified upload.
+
+    Layout: "<aa>/<bb>/<full-sha>.<ext>" where aa and bb are the first two
+    hex byte-pairs of the SHA-256 digest. The extension is chosen from a
+    fixed allowlist of MIME types.
+    """
+    if (
+        not isinstance(sha256_hex, str)
+        or len(sha256_hex) != 64
+        or any(c not in _HEX for c in sha256_hex)
+    ):
+        raise FileKeyError(
+            f"invalid sha256 digest: must be 64 lowercase hex chars, got {sha256_hex!r}"
+        )
+    ext = _MIME_TO_EXT.get(mime_type)
+    if ext is None:
+        raise FileKeyError(f"unsupported mime type: {mime_type!r}")
+    return f"{sha256_hex[0:2]}/{sha256_hex[2:4]}/{sha256_hex}.{ext}"
+
+
+def resolve_file_key(file_key: str) -> Path:
+    """Resolve a file key to an absolute path under uploads/ — sandboxed.
+
+    Raises FileKeyError if the key is empty, absolute, or resolves outside
+    the uploads root (including via symlinks).
+    """
+    if not isinstance(file_key, str) or file_key == "":
+        raise FileKeyError("file key is empty")
+    if file_key.startswith("/") or (len(file_key) > 1 and file_key[1] == ":"):
+        # Block POSIX-absolute and Windows-style absolute keys.
+        raise FileKeyError(f"file key must be relative, got absolute: {file_key!r}")
+    base = uploads_dir().resolve()
+    candidate = (base / file_key).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise FileKeyError(
+            f"file key {file_key!r} escapes uploads sandbox"
+        ) from exc
+    return candidate
