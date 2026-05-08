@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import ForeignKey, Index, String, Text, func
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from flexlog.db import Base
@@ -44,6 +44,12 @@ class Person(Base):
         secondary="person_tag",
         back_populates="people",
         order_by="Tag.name",
+    )
+
+    sessions: Mapped[List["Session"]] = relationship(
+        back_populates="person",
+        cascade="all, delete-orphan",
+        order_by="Session.session_date.desc()",
     )
 
 
@@ -78,3 +84,49 @@ class PersonTag(Base):
 
 # Lookup index on slug is already created by the unique constraint above.
 # No further indexes in M2; M3 adds session(person_id, session_date).
+
+
+class Session(Base):
+    __tablename__ = "session"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    person_id: Mapped[str] = mapped_column(
+        String, ForeignKey("person.id", ondelete="CASCADE"), nullable=False
+    )
+    session_date: Mapped[str] = mapped_column(Text, nullable=False)  # YYYY-MM-DD
+    overall_score: Mapped[int] = mapped_column(nullable=False)
+    custom_ratings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
+    updated_at: Mapped[str] = mapped_column(
+        Text, nullable=False, default=_utcnow_iso, onupdate=_utcnow_iso
+    )
+
+    person: Mapped["Person"] = relationship(back_populates="sessions")
+    links: Mapped[List["SessionLink"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SessionLink.sort_order",
+    )
+
+    __table_args__ = (
+        CheckConstraint("overall_score >= 0 AND overall_score <= 5", name="ck_session_overall_score"),
+        Index("ix_session_person_date", "person_id", "session_date"),
+    )
+
+
+class SessionLink(Base):
+    __tablename__ = "session_link"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("session.id", ondelete="CASCADE"), nullable=False
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # FK to media_file lands in M4. Free string for now.
+    thumbnail_media_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    sort_order: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
+
+    session: Mapped["Session"] = relationship(back_populates="links")
