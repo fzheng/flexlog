@@ -1,0 +1,126 @@
+"""Session CRUD routes."""
+
+from __future__ import annotations
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
+
+from flexlog.db import get_db
+from flexlog.services.people import get_person
+from flexlog.services.sessions import (
+    SessionNotFoundError,
+    create_session,
+    delete_session,
+    get_session,
+    split_custom_ratings,
+    update_session,
+)
+from flexlog.web.forms import SessionForm
+
+sessions_bp = Blueprint("sessions", __name__)
+
+
+def _person_or_404(person_id: str):
+    person = get_person(get_db(), person_id)
+    if person is None:
+        abort(404)
+    return person
+
+
+def _session_or_404(session_id: str):
+    s = get_session(get_db(), session_id)
+    if s is None:
+        abort(404)
+    return s
+
+
+def _enabled_rating_dimensions():
+    cfg = current_app.config["FLEXLOG"]
+    return [r for r in cfg.ratings if r.enabled]
+
+
+def _parse_custom_ratings_from_request() -> dict[str, int]:
+    """Pull rating_<id> form fields, validate against enabled dimensions."""
+    out: dict[str, int] = {}
+    for dim in _enabled_rating_dimensions():
+        raw = (request.form.get(f"rating_{dim.id}") or "").strip()
+        if not raw:
+            continue
+        try:
+            val = int(raw)
+        except ValueError:
+            continue
+        if dim.scale_min <= val <= dim.scale_max:
+            out[dim.id] = val
+    return out
+
+
+def _parse_links_from_request() -> list[dict]:
+    """Read link_url[] / link_label[] parallel arrays into list[dict]."""
+    urls = request.form.getlist("link_url")
+    labels = request.form.getlist("link_label")
+    out: list[dict] = []
+    for i, url in enumerate(urls):
+        label = labels[i] if i < len(labels) else ""
+        out.append({"url": url, "label": label})
+    return out
+
+
+@sessions_bp.get("/people/<person_id>/sessions/new")
+def new(person_id: str):
+    person = _person_or_404(person_id)
+    form = SessionForm()
+    return render_template(
+        "sessions/new.html",
+        form=form,
+        person=person,
+        rating_dimensions=_enabled_rating_dimensions(),
+        existing_ratings={},
+        existing_links=[],
+    )
+
+
+@sessions_bp.post("/people/<person_id>/sessions")
+def create(person_id: str):
+    person = _person_or_404(person_id)
+    form = SessionForm()
+    rating_dimensions = _enabled_rating_dimensions()
+    if not form.validate_on_submit():
+        return render_template(
+            "sessions/new.html",
+            form=form,
+            person=person,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_custom_ratings_from_request(),
+            existing_links=_parse_links_from_request(),
+        ), 400
+    db = get_db()
+    session_row = create_session(
+        db,
+        person_id=person.id,
+        session_date=form.session_date.data,
+        overall_score=form.overall_score.data,
+        custom_ratings=_parse_custom_ratings_from_request(),
+        notes=(form.notes.data or None),
+        links=_parse_links_from_request(),
+    )
+    db.commit()
+    return redirect(url_for("sessions.detail", session_id=session_row.id))
+
+
+# Detail / edit / update / delete added in Tasks 6 + 7.
+
+
+@sessions_bp.get("/sessions/<session_id>")
+def detail(session_id: str):
+    """STUB — full implementation in Task 6."""
+    s = _session_or_404(session_id)
+    return f"<p>session {s.id} on {s.session_date}, score {s.overall_score}</p>", 200
