@@ -39,3 +39,10 @@ def test_base_metadata_is_a_metadata_object(tmp_path):
     assert hasattr(Base, "metadata")
     # Should have a `create_all` callable
     assert callable(Base.metadata.create_all)
+
+
+def test_close_db_is_safe_when_no_session_created(app):
+    """close_db() must not raise when called with no session in g."""
+    from flexlog.db import close_db
+    with app.app_context():
+        close_db()  # should be a no-op

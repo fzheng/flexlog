@@ -91,3 +91,54 @@ def test_configure_logging_is_idempotent(tmp_data_dir):
     handlers_after_second = len(logger.handlers)
     assert handlers_after_first == 1
     assert handlers_after_second == 1
+
+
+def test_create_app_writes_secret_key_on_first_run(tmp_data_dir):
+    """After create_app() the .secret_key file must exist with mode 0600."""
+    import stat
+
+    create_app()
+    key_file = tmp_data_dir / ".secret_key"
+    assert key_file.exists()
+    mode = stat.S_IMODE(key_file.stat().st_mode)
+    assert mode == 0o600
+
+
+def test_create_app_creates_database_with_tables(tmp_data_dir):
+    from sqlalchemy import inspect
+
+    app = create_app()
+    engine = app.config["FLEXLOG_DB_ENGINE"]
+    names = set(inspect(engine).get_table_names())
+    assert {"person", "tag", "person_tag"} <= names
+
+
+def test_create_app_attaches_session_factory(tmp_data_dir):
+    app = create_app()
+    factory = app.config["FLEXLOG_DB_SESSION_FACTORY"]
+    assert callable(factory)
+    with factory() as s:
+        from sqlalchemy import text
+
+        assert s.execute(text("SELECT 1")).scalar() == 1
+
+
+def test_csrf_is_enabled_in_production_default(tmp_data_dir):
+    """create_app() must set WTF_CSRF_ENABLED = True by default.
+
+    The `app` fixture overrides this for testing convenience; this test
+    constructs the app directly to verify the default.
+    """
+    app = create_app()
+    assert app.config["WTF_CSRF_ENABLED"] is True
+
+
+def test_get_db_returns_same_session_within_request(app):
+    """get_db() must memoize within a single app context."""
+    from flexlog.db import close_db, get_db
+
+    with app.app_context():
+        a = get_db()
+        b = get_db()
+        assert a is b
+        close_db()

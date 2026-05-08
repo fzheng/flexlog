@@ -40,3 +40,40 @@ def make_engine(db_path: Path) -> Engine:
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Return a sessionmaker bound to `engine`. Each `Session()` is independent."""
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
+
+
+from flask import Flask, current_app, g
+
+_SESSION_KEY = "_flexlog_db_session"
+_FACTORY_KEY = "FLEXLOG_DB_SESSION_FACTORY"
+_ENGINE_KEY = "FLEXLOG_DB_ENGINE"
+
+
+def attach_to_app(app: Flask, engine: Engine, session_factory: sessionmaker[Session]) -> None:
+    """Stash engine + session factory on the Flask app and register teardown."""
+    app.config[_ENGINE_KEY] = engine
+    app.config[_FACTORY_KEY] = session_factory
+
+    @app.teardown_appcontext
+    def _close(_error: BaseException | None) -> None:
+        close_db()
+
+
+def get_db() -> Session:
+    """Return the request-scoped Session, creating it on first call.
+
+    Must be called inside a Flask app context (i.e. during a request or
+    inside `with app.app_context():`). The session is closed by the
+    teardown handler installed in `attach_to_app`.
+    """
+    if _SESSION_KEY not in g:
+        factory = current_app.config[_FACTORY_KEY]
+        g.setdefault(_SESSION_KEY, factory())
+    return g.get(_SESSION_KEY)
+
+
+def close_db() -> None:
+    """Close + remove the request-scoped Session if one was created."""
+    session = g.pop(_SESSION_KEY, None)
+    if session is not None:
+        session.close()
