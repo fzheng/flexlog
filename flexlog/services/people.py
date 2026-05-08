@@ -8,11 +8,12 @@ directly.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from flexlog.db.models import Person, PersonTag, Tag
+from flexlog.db.models import Person, PersonTag, Session as SessionRow, Tag
 from flexlog.services.tags import (
     get_or_create_tag,
     normalize_tag_input,
@@ -122,3 +123,64 @@ def delete_person(session: Session, person_id: str) -> None:
     if person is None:
         raise PersonNotFoundError(person_id)
     session.delete(person)
+
+
+@dataclass(frozen=True)
+class DashboardRow:
+    """One person's dashboard row with aggregates."""
+    person: Person
+    session_count: int
+    last_session_date: str | None
+    avg_overall_score: float | None
+
+
+def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
+    """Return DashboardRows: one per person, with session aggregates.
+
+    Search semantics match search_people: empty query → all; non-empty →
+    case-insensitive substring match on alias OR tag.name OR tag.slug.
+    Aggregates computed in a single grouped query with LEFT JOIN through
+    session — people with no sessions still appear (zero/None aggregates).
+    """
+    q = (query or "").strip()
+    base = (
+        select(
+            Person,
+            func.count(SessionRow.id).label("session_count"),
+            func.max(SessionRow.session_date).label("last_session_date"),
+            func.avg(SessionRow.overall_score).label("avg_overall_score"),
+        )
+        .outerjoin(SessionRow, SessionRow.person_id == Person.id)
+        .group_by(Person.id)
+        .order_by(Person.alias.collate("NOCASE"))
+        .options(selectinload(Person.tags))
+    )
+
+    if q != "":
+        like = f"%{q.lower()}%"
+        # We need an EXISTS subquery here rather than another join: joining
+        # through person_tag/tag would multiply rows before GROUP BY and
+        # break aggregates (test_dashboard_rows_does_not_double_count_with_tags).
+        from sqlalchemy import exists
+
+        tag_match = (
+            select(PersonTag.person_id)
+            .join(Tag, Tag.id == PersonTag.tag_id)
+            .where(
+                PersonTag.person_id == Person.id,
+                or_(Tag.name.ilike(like), Tag.slug.ilike(like)),
+            )
+        )
+        base = base.where(or_(Person.alias.ilike(like), exists(tag_match)))
+
+    out: list[DashboardRow] = []
+    for person, count, last_date, avg_score in session.execute(base).all():
+        out.append(
+            DashboardRow(
+                person=person,
+                session_count=int(count or 0),
+                last_session_date=last_date,
+                avg_overall_score=float(avg_score) if avg_score is not None else None,
+            )
+        )
+    return out
