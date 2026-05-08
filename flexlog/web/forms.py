@@ -7,9 +7,11 @@ the service layer or hold absurd strings in memory.
 
 from __future__ import annotations
 
+import re
+
 from flask_wtf import FlaskForm
-from wtforms import StringField
-from wtforms.validators import DataRequired, Length, Optional, ValidationError
+from wtforms import IntegerField, StringField, TextAreaField
+from wtforms.validators import DataRequired, Length, NumberRange, Optional, Regexp, ValidationError
 
 ALIAS_MAX = 200
 TAGS_MAX = 1000  # comma-separated free text
@@ -32,4 +34,30 @@ class PersonForm(FlaskForm):
     tags = StringField(
         "tags",
         validators=[Optional(), Length(max=TAGS_MAX)],
+    )
+
+
+NOTES_MAX = 100_000  # 100k chars; well above any realistic single-session note
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class SessionForm(FlaskForm):
+    session_date = StringField(
+        "session_date",
+        validators=[
+            DataRequired(message="session_date is required"),
+            Regexp(_DATE_RE, message="session_date must be ISO YYYY-MM-DD"),
+        ],
+    )
+    overall_score = IntegerField(
+        "overall_score",
+        validators=[
+            DataRequired(message="overall_score is required"),
+            NumberRange(min=0, max=5, message="overall_score must be 0..5"),
+        ],
+    )
+    notes = TextAreaField(
+        "notes",
+        validators=[Optional(), Length(max=NOTES_MAX)],
     )
