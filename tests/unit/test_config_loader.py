@@ -211,3 +211,120 @@ def test_load_config_ui_strings_optional(tmp_path):
     p = _write(tmp_path, d)
     cfg = load_config(p)
     assert cfg.ui_strings == {}
+
+
+# --- Defensive-branch coverage to satisfy spec §11.4 (≥95% on critical-path modules) ---
+
+
+def test_load_config_app_section_not_an_object(tmp_path):
+    d = _valid_config_dict()
+    d["app"] = "not an object"
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="`app` section"):
+        load_config(p)
+
+
+def test_load_config_ratings_not_a_list(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"] = {"not": "a list"}
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="`ratings` must be a list"):
+        load_config(p)
+
+
+def test_load_config_rating_entry_not_an_object(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"] = ["not an object"]
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match=r"ratings\[0\] must be an object"):
+        load_config(p)
+
+
+def test_load_config_rating_label_empty(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"][0]["label"] = ""
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="label"):
+        load_config(p)
+
+
+def test_load_config_rating_description_wrong_type(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"][0]["description"] = 123
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="description"):
+        load_config(p)
+
+
+def test_load_config_rating_scale_max_at_or_below_scale_min(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"][0]["scale_min"] = 3
+    d["ratings"][0]["scale_max"] = 3  # equal → invalid
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="scale_max"):
+        load_config(p)
+
+
+def test_load_config_rating_enabled_wrong_type(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"][0]["enabled"] = "yes"  # not a bool
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="enabled"):
+        load_config(p)
+
+
+def test_load_config_ui_strings_wrong_top_type(tmp_path):
+    d = _valid_config_dict()
+    d["ui_strings"] = ["not", "a", "dict"]
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="ui_strings"):
+        load_config(p)
+
+
+def test_load_config_ui_strings_entry_wrong_type(tmp_path):
+    d = _valid_config_dict()
+    d["ui_strings"] = {"good_key": "fine", "bad_key": 42}
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="ui_strings"):
+        load_config(p)
+
+
+def test_load_config_limits_section_missing(tmp_path):
+    d = _valid_config_dict()
+    del d["limits"]
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="`limits` section"):
+        load_config(p)
+
+
+def test_load_config_limits_section_wrong_type(tmp_path):
+    d = _valid_config_dict()
+    d["limits"] = "nope"
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="`limits` section"):
+        load_config(p)
+
+
+def test_load_config_limits_field_is_bool_rejected(tmp_path):
+    """A boolean is technically `int` in Python — make sure the validator rejects it."""
+    d = _valid_config_dict()
+    d["limits"]["max_upload_mb_per_file"] = True
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="max_upload_mb_per_file"):
+        load_config(p)
+
+
+def test_load_config_rating_id_not_a_string(tmp_path):
+    d = _valid_config_dict()
+    d["ratings"][0]["id"] = 42
+    p = _write(tmp_path, d)
+    with pytest.raises(ConfigError, match="rating id"):
+        load_config(p)
+
+
+def test_load_config_ratings_omitted_returns_empty_tuple(tmp_path):
+    d = _valid_config_dict()
+    del d["ratings"]
+    p = _write(tmp_path, d)
+    cfg = load_config(p)
+    assert cfg.ratings == ()
