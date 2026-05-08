@@ -210,3 +210,60 @@ def _parse_limits(value: Any, errors: list[str]) -> Limits | None:
     if not ok:
         return None
     return Limits(**parsed)
+
+
+# Canonical default config.json — used at first-run bootstrap.
+# Mirrors the example in PRD §6.1.
+DEFAULT_CONFIG_JSON = """{
+  "app": {
+    "name": "Interview Log",
+    "entity_singular": "Guest",
+    "entity_plural": "Guests",
+    "session_singular": "Interview",
+    "session_plural": "Interviews"
+  },
+  "ratings": [
+    {
+      "id": "overall_quality",
+      "label": "Overall Quality",
+      "description": "General impression of the session",
+      "scale_min": 0,
+      "scale_max": 5,
+      "enabled": true
+    },
+    {
+      "id": "clarity",
+      "label": "Clarity",
+      "description": "How clear and articulate the person was",
+      "scale_min": 0,
+      "scale_max": 5,
+      "enabled": true
+    }
+  ],
+  "ui_strings": {
+    "new_person": "New Guest",
+    "add_session": "Add Interview",
+    "search_placeholder": "Search guests or tags",
+    "empty_dashboard": "No guests yet. Add your first guest to begin."
+  },
+  "limits": {
+    "max_custom_rating_dimensions": 6,
+    "max_audio_files_per_session": 10,
+    "max_video_files_per_session": 10,
+    "max_photo_files_per_session": 50,
+    "max_upload_mb_per_file": 500
+  }
+}
+"""
+
+
+def load_or_bootstrap(path: Path) -> Config:
+    """Load config.json. If absent, write the default first, then load.
+
+    Existing-but-malformed files are NOT overwritten — they raise so the user
+    can fix their hand-edited file.
+    """
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
+    return load_config(path)

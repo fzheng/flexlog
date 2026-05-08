@@ -328,3 +328,49 @@ def test_load_config_ratings_omitted_returns_empty_tuple(tmp_path):
     p = _write(tmp_path, d)
     cfg = load_config(p)
     assert cfg.ratings == ()
+
+
+# --- First-run bootstrap ---
+
+from flexlog.config_loader import DEFAULT_CONFIG_JSON, load_or_bootstrap
+
+
+def test_load_or_bootstrap_writes_default_when_missing(tmp_path):
+    p = tmp_path / "config.json"
+    assert not p.exists()
+    cfg = load_or_bootstrap(p)
+    # File is now present
+    assert p.exists()
+    # Content matches the canonical default
+    assert json.loads(p.read_text()) == json.loads(DEFAULT_CONFIG_JSON)
+    # And the loaded Config is consistent
+    assert cfg.app.name == "Interview Log"
+
+
+def test_load_or_bootstrap_existing_valid_file_unchanged(tmp_path):
+    p = tmp_path / "config.json"
+    payload = _valid_config_dict()
+    payload["app"]["name"] = "My Custom Name"
+    p.write_text(json.dumps(payload))
+    cfg = load_or_bootstrap(p)
+    assert cfg.app.name == "My Custom Name"
+    # Bootstrap must not overwrite an existing file
+    assert json.loads(p.read_text())["app"]["name"] == "My Custom Name"
+
+
+def test_load_or_bootstrap_existing_malformed_file_raises(tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text("{ broken")
+    with pytest.raises(ConfigError, match="not valid JSON"):
+        load_or_bootstrap(p)
+    # Must not have overwritten the user's broken file
+    assert p.read_text() == "{ broken"
+
+
+def test_default_config_is_self_consistent(tmp_path):
+    """Sanity: the canonical default must validate cleanly."""
+    p = tmp_path / "config.json"
+    p.write_text(DEFAULT_CONFIG_JSON)
+    cfg = load_config(p)
+    assert cfg.app.name == "Interview Log"
+    assert any(r.id == "overall_quality" for r in cfg.ratings)
