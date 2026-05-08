@@ -1,0 +1,49 @@
+<div class="form-row">
+  <label for="session_date">{{ "session_date_label" | ui }}</label>
+  <input type="date" id="session_date" name="session_date" value="{{ form.session_date.data or '' }}" required>
+  {% for err in form.session_date.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+</div>
+
+<div class="form-row">
+  <label for="overall_score">{{ "overall_score_label" | ui }}</label>
+  <input type="number" id="overall_score" name="overall_score" min="0" max="5" step="1" value="{{ form.overall_score.data if form.overall_score.data is not none else '' }}" required>
+  {% for err in form.overall_score.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+</div>
+
+{% if rating_dimensions %}
+<fieldset class="form-row ratings-grid">
+  <legend>{{ "custom_ratings_heading" | ui }}</legend>
+  {% for dim in rating_dimensions %}
+    <div class="rating-input">
+      <label for="rating_{{ dim.id }}">{{ dim.label }}</label>
+      <input type="number" id="rating_{{ dim.id }}" name="rating_{{ dim.id }}"
+             min="{{ dim.scale_min }}" max="{{ dim.scale_max }}" step="1"
+             value="{{ existing_ratings.get(dim.id, '') }}">
+    </div>
+  {% endfor %}
+</fieldset>
+{% endif %}
+
+<div class="form-row">
+  <label for="notes">{{ "notes_label" | ui }}</label>
+  <textarea id="notes" name="notes" rows="6">{{ form.notes.data or '' }}</textarea>
+  {% for err in form.notes.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
+</div>
+
+<fieldset class="form-row links-row">
+  <legend>{{ "links_heading" | ui }}</legend>
+  <div id="link-rows" data-link-rows>
+    {% for link in existing_links %}
+      {% with index = loop.index0, url = link.url, label = link.label, link_id = link.get('id', '') %}
+        {% include "_partials/link_row_form.html" %}
+      {% endwith %}
+    {% endfor %}
+    {# Always render at least one empty row #}
+    {% if not existing_links %}
+      {% with index = 0, url = '', label = '', link_id = '' %}
+        {% include "_partials/link_row_form.html" %}
+      {% endwith %}
+    {% endif %}
+  </div>
+  <button type="button" id="add-link-row" class="btn">{{ "add_link" | ui }}</button>
+</fieldset>

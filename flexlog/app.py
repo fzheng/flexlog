@@ -14,7 +14,7 @@ from flexlog.config_loader import Config, load_or_bootstrap
 from flexlog.db import Base, attach_to_app, make_engine, make_session_factory
 from flexlog.secret_key import load_or_create_secret_key
 from flexlog.web import register_blueprints
-from flexlog.web.filters import build_labels_context, ui_filter
+from flexlog.web.filters import build_labels_context, notes_preview, ui_filter
 
 LOGGER_NAME = "flexlog"
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -63,6 +63,7 @@ def create_app() -> Flask:
 
     # 7. Wire up filters + context processor
     app.jinja_env.filters["ui"] = lambda key: ui_filter(key)
+    app.jinja_env.filters["notes_preview"] = notes_preview
 
     @app.context_processor
     def _inject_labels() -> dict[str, object]:

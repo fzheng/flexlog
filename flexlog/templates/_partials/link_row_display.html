@@ -1,0 +1,7 @@
+{# Read-only link row used on the session detail page. Caller passes `link`. #}
+<li class="link-display">
+  <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">
+    {{ link.label or link.url }}
+  </a>
+  {% if link.label %}<span class="link-url-meta">{{ link.url }}</span>{% endif %}
+</li>

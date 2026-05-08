@@ -1,47 +1,60 @@
 {% extends "_base.html" %}
+
 {% block title %}{{ session.session_date }} — {{ person.alias }}{% endblock %}
+
 {% block content %}
-<p><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.alias }}</a></p>
-<h2>{{ session.session_date }}</h2>
-<p>Overall score: <strong>{{ session.overall_score }}/5</strong></p>
+<section class="session-detail">
+  <header class="session-detail-header">
+    <p class="breadcrumb"><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.alias }}</a></p>
+    <h2>{{ session.session_date }}</h2>
+    <p class="session-detail-score">{{ "overall_score_label" | ui }}: <strong>{{ session.overall_score }}/5</strong></p>
+    <div class="session-detail-actions">
+      <a class="btn" href="{{ url_for('sessions.edit', session_id=session.id) }}">{{ "edit_session" | ui }}</a>
+    </div>
+  </header>
 
-{% if current_ratings %}
-<section>
-  <h3>Ratings</h3>
-  <ul>
-    {% for rid, label, value in current_ratings %}
-      <li>{{ label }}: <strong>{{ value }}</strong></li>
-    {% endfor %}
-  </ul>
-</section>
-{% endif %}
-
-{% if archived_ratings %}
-<section>
-  <h3>Archived ratings</h3>
-  <ul>
-    {% for rid, value in archived_ratings %}
-      <li>{{ rid }}: <strong>{{ value }}</strong></li>
-    {% endfor %}
-  </ul>
-</section>
-{% endif %}
-
-<section>
-  <h3>Notes</h3>
-  {% if session.notes %}<pre>{{ session.notes }}</pre>{% else %}<p>(no notes)</p>{% endif %}
-</section>
-
-<section>
-  <h3>Links</h3>
-  {% if session.links %}
+  {% if current_ratings %}
+  <section class="ratings-display">
+    <h3>{{ "custom_ratings_heading" | ui }}</h3>
     <ul>
-      {% for link in session.links %}
-      <li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label or link.url }}</a></li>
+      {% for rid, label, value in current_ratings %}
+        <li>{{ label }}: <strong>{{ value }}</strong></li>
       {% endfor %}
     </ul>
-  {% else %}<p>(no links)</p>{% endif %}
-</section>
+  </section>
+  {% endif %}
 
-<a href="{{ url_for('sessions.edit', session_id=session.id) }}">Edit</a>
+  {% if archived_ratings %}
+  <details class="ratings-display archived">
+    <summary>{{ "archived_ratings_heading" | ui }}</summary>
+    <ul>
+      {% for rid, value in archived_ratings %}
+        <li>{{ rid }}: <strong>{{ value }}</strong></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+
+  <section class="notes-display">
+    <h3>{{ "notes_label" | ui }}</h3>
+    {% if session.notes %}
+      <pre class="notes">{{ session.notes }}</pre>
+    {% else %}
+      <p class="empty-state">{{ "no_notes" | ui }}</p>
+    {% endif %}
+  </section>
+
+  <section class="links-display">
+    <h3>{{ "links_heading" | ui }}</h3>
+    {% if session.links %}
+      <ul class="link-list">
+        {% for link in session.links %}
+          {% include "_partials/link_row_display.html" %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty-state">{{ "no_links" | ui }}</p>
+    {% endif %}
+  </section>
+</section>
 {% endblock %}
