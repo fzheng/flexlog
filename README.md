@@ -5,7 +5,7 @@ Local-only, single-user web app for recording recurring 1v1 sessions with people
 Internal codename for the **1v1 Journal** product spec — see
 `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`.
 
-Latest milestone shipped: **M2 — People + Tags** (see `## What's next`
+Latest milestone shipped: **M3 — Sessions + Ratings + Notes** (see `## What's next`
 for the roadmap).
 
 ## Requirements
@@ -76,12 +76,19 @@ restore: place the directory on the new machine, set `FLEXLOG_DATA_DIR`
 to its absolute path, and run `flexlog`. Both the SQLite database (M2+)
 and uploaded media (M4+) are inside that directory.
 
-## Features (M2)
+## Features (M3)
 
 - Add, edit, delete people (delete requires typing the alias)
 - Global tags shared across all people
-- Dashboard with search by alias or tag
+- Dashboard with search by alias or tag, plus per-person session count, last
+  session date, and average overall score
+- Sessions per person: required date + 0..5 overall score, custom rating
+  dimensions from `config.json`, plain-text notes (UTF-8 / Chinese OK), and
+  zero or more links (URL + optional label)
+- Archived custom ratings — values stored under rating IDs no longer in
+  `config.json` render under a collapsed "Archived ratings" group
 - Default avatar placeholder (real avatar upload comes in M5)
+- Media uploads (photos, audio, video) come in M4
 
 ## Run the test suite
 
@@ -99,7 +106,7 @@ cross that threshold or the suite fails.
 Subsequent milestones:
 
 - **M2 (✓ shipped):** people + tags + dashboard
-- M3: sessions + ratings + notes
+- **M3 (✓ shipped):** sessions + ratings + notes + dashboard aggregates
 - M4: media + Media Library + hash dedup
 - M5: avatar cropper + sort + polish
 
