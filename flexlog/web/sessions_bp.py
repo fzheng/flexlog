@@ -188,3 +188,31 @@ def update(session_id: str):
         abort(404)
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_id))
+
+
+@sessions_bp.post("/sessions/<session_id>/delete")
+def destroy(session_id: str):
+    s = _session_or_404(session_id)
+    person_id = s.person_id
+    db = get_db()
+    try:
+        delete_session(db, session_id)
+    except SessionNotFoundError:
+        abort(404)
+    db.commit()
+    flash(f"Deleted session from {s.session_date}.", "success")
+    return redirect(url_for("people.detail", person_id=person_id))
+
+
+@sessions_bp.post("/session_links/<link_id>/delete")
+def link_destroy(link_id: str):
+    from flexlog.db.models import SessionLink
+
+    db = get_db()
+    link = db.get(SessionLink, link_id)
+    if link is None:
+        abort(404)
+    session_id = link.session_id
+    db.delete(link)
+    db.commit()
+    return redirect(url_for("sessions.edit", session_id=session_id))

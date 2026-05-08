@@ -185,3 +185,30 @@ def test_archived_ratings_render_separately(client, db_session, app):
     # uses a heading like "Archived ratings" for the latter group).
     assert "Clarity" in body  # current label
     assert "removed_dim" in body  # archived raw id
+
+
+def test_post_delete_session(client, db_session):
+    from flexlog.services.sessions import get_session
+
+    p = _make_person(db_session)
+    s = _make_session(db_session, p.id)
+    resp = client.post(f"/sessions/{s.id}/delete", follow_redirects=False)
+    assert resp.status_code == 302
+    # Redirects to person detail
+    assert f"/people/{p.id}" in resp.headers["Location"]
+    assert get_session(db_session, s.id) is None
+
+
+def test_post_delete_session_404(client):
+    resp = client.post("/sessions/nope/delete")
+    assert resp.status_code == 404
+
+
+def test_delete_session_cascades_links(client, db_session):
+    from sqlalchemy import text
+
+    p = _make_person(db_session)
+    s = _make_session(db_session, p.id, links=[{"url": "https://a.com"}, {"url": "https://b.com"}])
+    client.post(f"/sessions/{s.id}/delete")
+    db_session.expire_all()
+    assert db_session.execute(text("SELECT COUNT(*) FROM session_link WHERE session_id = :sid"), {"sid": s.id}).scalar() == 0
