@@ -1,0 +1,43 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ person.alias }} — {{ labels.app_name }}{% endblock %}
+
+{% block content %}
+<section class="person-detail">
+  <header class="person-detail-header">
+    {% include "_partials/avatar_placeholder.html" %}
+    <div class="person-detail-meta">
+      <h2>{{ person.alias }}</h2>
+      {% if person.tags %}
+      <ul class="tag-chip-list">
+        {% for tag in person.tags %}
+          <li>{% include "_partials/tag_chip.html" %}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    <div class="person-detail-actions">
+      <a class="btn" href="{{ url_for('people.edit', person_id=person.id) }}">{{ "edit_person" | ui }}</a>
+      <a class="btn btn-disabled" href="#" aria-disabled="true" title="Coming in M3">{{ "add_session" | ui }}</a>
+    </div>
+  </header>
+
+  <section class="sessions-section">
+    <h3>{{ labels.session.plural }}</h3>
+    <p class="empty-state">{{ "no_sessions_yet" | ui }}</p>
+  </section>
+
+  <section class="danger-zone">
+    <h3>{{ "delete_person" | ui }}</h3>
+    <p>{{ "delete_person_confirm_prompt" | ui }} <strong>{{ person.alias }}</strong></p>
+    <form method="post" action="{{ url_for('people.destroy', person_id=person.id) }}" class="delete-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="confirm_alias" autocomplete="off" placeholder="{{ person.alias }}">
+      <button type="submit" class="btn btn-danger">{{ "delete_person" | ui }}</button>
+    </form>
+    {% if delete_error %}
+      <p class="form-error">Alias did not match.</p>
+    {% endif %}
+  </section>
+</section>
+{% endblock %}

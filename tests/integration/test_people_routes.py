@@ -100,3 +100,29 @@ def test_xss_in_tag_name_is_escaped(client, db_session):
     resp = client.get(f"/people/{p.id}/edit")
     body = resp.get_data(as_text=True)
     assert "<img onerror=x>" not in body
+
+
+def test_get_person_detail(client, db_session):
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="Friend, Engineer")
+    db_session.commit()
+    resp = client.get(f"/people/{p.id}")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # Alias is rendered
+    assert "Alice" in body
+    # Tag chips render
+    assert "Friend" in body
+    assert "Engineer" in body
+    # Empty session list copy from BUILTIN_UI_DEFAULTS
+    assert "No sessions yet" in body
+    # Edit link present
+    assert f"/people/{p.id}/edit" in body
+    # Delete link/form present
+    assert f"/people/{p.id}/delete" in body
+
+
+def test_get_person_detail_404(client):
+    resp = client.get("/people/no-such-id")
+    assert resp.status_code == 404

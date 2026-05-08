@@ -83,16 +83,24 @@ def update(person_id: str):
     return redirect(url_for("people.detail", person_id=person_id))
 
 
-# Detail + delete routes are added in Task 10. The url_for("people.detail")
-# calls in the redirects above will fail at runtime if Task 10 isn't done
-# yet — but at template-render time the references are unresolved strings
-# (for url_for() called in templates), so the test_post_create_person_*
-# redirects must follow_redirects=False.
-
-
 @people_bp.get("/<person_id>")
 def detail(person_id: str):
-    """STUB — full implementation in Task 10."""
     person = _person_or_404(person_id)
-    # Minimal placeholder so create/update redirects succeed.
-    return f"<p>person: {person.alias}</p>", 200
+    return render_template("people/detail.html", person=person)
+
+
+@people_bp.post("/<person_id>/delete")
+def destroy(person_id: str):
+    person = _person_or_404(person_id)
+    confirm = (request.form.get("confirm_alias") or "").strip()
+    if confirm != person.alias:
+        flash("Alias did not match — person not deleted.", "error")
+        return render_template("people/detail.html", person=person, delete_error=True), 400
+    db = get_db()
+    try:
+        delete_person(db, person_id)
+    except PersonNotFoundError:
+        abort(404)
+    db.commit()
+    flash(f"Deleted {person.alias}.", "success")
+    return redirect(url_for("home.home"))
