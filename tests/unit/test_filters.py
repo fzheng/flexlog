@@ -76,3 +76,35 @@ def test_builtin_ui_defaults_covers_default_config_keys():
     builtin_keys = set(BUILTIN_UI_DEFAULTS.keys())
     missing = default_keys - builtin_keys
     assert not missing, f"BUILTIN_UI_DEFAULTS missing fallbacks for: {missing}"
+
+
+def test_notes_preview_empty_returns_empty_string():
+    from flexlog.web.filters import notes_preview
+    assert notes_preview(None) == ""
+    assert notes_preview("") == ""
+    assert notes_preview("   ") == ""
+
+
+def test_notes_preview_short_returned_as_is():
+    from flexlog.web.filters import notes_preview
+    assert notes_preview("hello world") == "hello world"
+
+
+def test_notes_preview_truncates_with_ellipsis():
+    from flexlog.web.filters import notes_preview
+    long = "a" * 200
+    out = notes_preview(long, length=80)
+    assert len(out) <= 81  # 80 chars + ellipsis (the … is one char)
+    assert out.endswith("…")
+
+
+def test_notes_preview_collapses_newlines():
+    from flexlog.web.filters import notes_preview
+    out = notes_preview("line one\nline two\nline three")
+    assert "\n" not in out
+    assert out == "line one line two line three"
+
+
+def test_notes_preview_unicode_preserved():
+    from flexlog.web.filters import notes_preview
+    assert notes_preview("深入交流") == "深入交流"

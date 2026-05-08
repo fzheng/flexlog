@@ -20,6 +20,7 @@ from flexlog.services.people import (
     get_person,
     update_person,
 )
+from flexlog.services.sessions import list_sessions_for_person
 from flexlog.web.forms import PersonForm
 
 people_bp = Blueprint("people", __name__, url_prefix="/people")
@@ -86,7 +87,6 @@ def update(person_id: str):
 @people_bp.get("/<person_id>")
 def detail(person_id: str):
     person = _person_or_404(person_id)
-    from flexlog.services.sessions import list_sessions_for_person
     sessions = list_sessions_for_person(get_db(), person_id)
     return render_template("people/detail.html", person=person, sessions=sessions)
 
@@ -97,7 +97,8 @@ def destroy(person_id: str):
     confirm = (request.form.get("confirm_alias") or "").strip()
     if confirm != person.alias:
         flash("Alias did not match — person not deleted.", "error")
-        return render_template("people/detail.html", person=person, delete_error=True), 400
+        sessions = list_sessions_for_person(get_db(), person_id)
+        return render_template("people/detail.html", person=person, sessions=sessions, delete_error=True), 400
     db = get_db()
     try:
         delete_person(db, person_id)

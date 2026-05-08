@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from flexlog.db.models import Person, PersonTag, Session as SessionRow, Tag
@@ -161,8 +161,6 @@ def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
         # We need an EXISTS subquery here rather than another join: joining
         # through person_tag/tag would multiply rows before GROUP BY and
         # break aggregates (test_dashboard_rows_does_not_double_count_with_tags).
-        from sqlalchemy import exists
-
         tag_match = (
             select(PersonTag.person_id)
             .join(Tag, Tag.id == PersonTag.tag_id)

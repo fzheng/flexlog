@@ -54,3 +54,21 @@ def test_delete_person_alias_check_is_case_sensitive(client, db_session):
     p = _create_person(db_session, alias="Alice")
     resp = client.post(f"/people/{p.id}/delete", data={"confirm_alias": "alice"})
     assert resp.status_code == 400
+
+
+def test_delete_person_with_wrong_alias_still_shows_session_list(client, db_session):
+    """Regression: destroy rerender must include sessions so the list still renders."""
+    from flexlog.services.people import create_person
+    from flexlog.services.sessions import create_session
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes="kept", links=[])
+    db_session.commit()
+
+    resp = client.post(f"/people/{p.id}/delete", data={"confirm_alias": "WRONG"})
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    # The session list must still render; "No sessions yet" should NOT appear
+    assert "2026-04-15" in body
+    assert "No sessions yet" not in body

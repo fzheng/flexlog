@@ -14,6 +14,7 @@ from flask import (
 )
 
 from flexlog.db import get_db
+from flexlog.db.models import SessionLink
 from flexlog.services.people import get_person
 from flexlog.services.sessions import (
     SessionNotFoundError,
@@ -206,8 +207,6 @@ def destroy(session_id: str):
 
 @sessions_bp.post("/session_links/<link_id>/delete")
 def link_destroy(link_id: str):
-    from flexlog.db.models import SessionLink
-
     db = get_db()
     link = db.get(SessionLink, link_id)
     if link is None:

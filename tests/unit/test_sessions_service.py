@@ -261,3 +261,16 @@ def test_split_custom_ratings_preserves_config_order(db_session):
     stored = '{"clarity": 4, "depth": 3}'
     current, _archived = split_custom_ratings(stored, enabled_ids)
     assert current == [("depth", 3), ("clarity", 4)]
+
+
+def test_split_custom_ratings_handles_malformed_json(db_session):
+    from flexlog.services.sessions import split_custom_ratings
+    assert split_custom_ratings("not json", ["clarity"]) == ([], [])
+    assert split_custom_ratings("{not closed", ["clarity"]) == ([], [])
+
+
+def test_split_custom_ratings_handles_non_dict_json(db_session):
+    from flexlog.services.sessions import split_custom_ratings
+    assert split_custom_ratings("[1, 2, 3]", ["clarity"]) == ([], [])
+    assert split_custom_ratings('"a string"', ["clarity"]) == ([], [])
+    assert split_custom_ratings("42", ["clarity"]) == ([], [])
