@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from flask import Flask, current_app, g
 from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -41,8 +42,6 @@ def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Return a sessionmaker bound to `engine`. Each `Session()` is independent."""
     return sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
-
-from flask import Flask, current_app, g
 
 _SESSION_KEY = "_flexlog_db_session"
 _FACTORY_KEY = "FLEXLOG_DB_SESSION_FACTORY"

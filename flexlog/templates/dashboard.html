@@ -21,7 +21,7 @@
       {% endfor %}
     </ul>
   {% elif query %}
-    <p class="empty-state">No matches for &ldquo;{{ query }}&rdquo;.</p>
+    <p class="empty-state">{{ "no_matches_for" | ui }} &ldquo;{{ query }}&rdquo;.</p>
   {% else %}
     <p class="empty-state">{{ "empty_dashboard" | ui }}</p>
   {% endif %}

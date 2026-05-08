@@ -129,11 +129,24 @@ def test_update_person_alias_and_tags(db_session):
 
 
 def test_update_person_clearing_tags(db_session):
+    from sqlalchemy import text
+
     p = create_person(db_session, alias="Alice", tag_input="Friend")
     db_session.commit()
     update_person(db_session, p.id, alias="Alice", tag_input="")
     db_session.commit()
-    assert get_person(db_session, p.id).tags == []
+    refreshed = get_person(db_session, p.id)
+    assert refreshed.tags == []
+    # The underlying join row must actually be deleted, not just absent
+    # from the in-memory collection.
+    join_count = db_session.execute(
+        text("SELECT COUNT(*) FROM person_tag WHERE person_id = :pid"),
+        {"pid": p.id},
+    ).scalar()
+    assert join_count == 0
+    # And the Tag itself survives — tags are global.
+    from flexlog.services.tags import list_all_tags
+    assert [t.name for t in list_all_tags(db_session)] == ["Friend"]
 
 
 def test_update_person_alias_required(db_session):

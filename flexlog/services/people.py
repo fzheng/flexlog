@@ -37,6 +37,8 @@ def _apply_tags(session: Session, person: Person, tag_input: str) -> None:
     """
     desired_pairs = normalize_tag_input(tag_input)
     desired_slugs = {sl for _name, sl in desired_pairs}
+    # Reassigning person.tags removes the corresponding person_tag rows but
+    # does NOT delete Tag rows (Person.tags has no cascade — see models.py).
     # Drop joins for tags no longer desired
     person.tags = [t for t in person.tags if t.slug in desired_slugs]
     # Add joins for new tags (use get_or_create_tag to keep dedup)

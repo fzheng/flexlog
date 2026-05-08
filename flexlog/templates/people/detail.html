@@ -36,7 +36,7 @@
       <button type="submit" class="btn btn-danger">{{ "delete_person" | ui }}</button>
     </form>
     {% if delete_error %}
-      <p class="form-error">Alias did not match.</p>
+      <p class="form-error">{{ "delete_alias_did_not_match" | ui }}</p>
     {% endif %}
   </section>
 </section>

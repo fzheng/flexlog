@@ -35,6 +35,11 @@ class Person(Base):
         Text, nullable=False, default=_utcnow_iso, onupdate=_utcnow_iso
     )
 
+    # NOTE: do NOT add cascade= here — tags are global per spec §6.10. The
+    # services._apply_tags helper relies on the default secondary-relationship
+    # semantics, which manage only the join rows on collection reassignment.
+    # Adding cascade="all, delete-orphan" would make `person.tags = [...]`
+    # hard-delete Tag rows. Keep tags cascade-free.
     tags: Mapped[List["Tag"]] = relationship(
         secondary="person_tag",
         back_populates="people",
