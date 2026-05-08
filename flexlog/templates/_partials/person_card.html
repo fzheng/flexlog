@@ -1,0 +1,14 @@
+{# Renders a single person card. Caller passes `person`. #}
+<a class="person-card" href="{{ url_for('people.detail', person_id=person.id) }}">
+  {% include "_partials/avatar_placeholder.html" %}
+  <div class="person-card-meta">
+    <span class="person-card-alias">{{ person.alias }}</span>
+    {% if person.tags %}
+    <ul class="tag-chip-list">
+      {% for tag in person.tags %}
+      <li>{% include "_partials/tag_chip.html" %}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</a>

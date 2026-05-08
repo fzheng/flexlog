@@ -1,0 +1,29 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ labels.entity.plural }} — {{ labels.app_name }}{% endblock %}
+
+{% block content %}
+<section class="dashboard">
+  <header class="dashboard-header">
+    <h2>{{ labels.entity.plural }}</h2>
+    <a class="btn btn-primary" href="{{ url_for('people.new') }}">{{ "new_person" | ui }}</a>
+  </header>
+
+  <form method="get" action="{{ url_for('home.home') }}" class="dashboard-search">
+    <label for="q" class="visually-hidden">{{ "search_placeholder" | ui }}</label>
+    <input id="q" type="search" name="q" value="{{ query }}" placeholder="{{ "search_placeholder" | ui }}" autocomplete="off">
+  </form>
+
+  {% if people %}
+    <ul class="person-grid">
+      {% for person in people %}
+        <li>{% include "_partials/person_card.html" %}</li>
+      {% endfor %}
+    </ul>
+  {% elif query %}
+    <p class="empty-state">No matches for &ldquo;{{ query }}&rdquo;.</p>
+  {% else %}
+    <p class="empty-state">{{ "empty_dashboard" | ui }}</p>
+  {% endif %}
+</section>
+{% endblock %}
