@@ -98,3 +98,40 @@ def test_library_hard_delete_removes_file(client, db_session, app):
 def test_library_hard_delete_404(client):
     resp = client.post("/library/nope/hard_delete")
     assert resp.status_code == 404
+
+
+def test_library_nav_link_in_base_template(client):
+    """The Media Library link should appear in the base nav on every page."""
+    resp = client.get("/")
+    assert "/library" in resp.get_data(as_text=True)
+
+
+def test_unlink_from_session_route(client, db_session):
+    """POST /sessions/<sid>/media/<sm_id>/unlink drops the join only — file persists."""
+    import io
+    from flexlog.db.models import MediaFile, SessionMedia, Session as SR
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-15", "overall_score": "4", "photos": (io.BytesIO(JPEG), "x.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    sess = db_session.query(SR).first()
+    sm = db_session.query(SessionMedia).first()
+    resp = client.post(f"/sessions/{sess.id}/media/{sm.id}/unlink", follow_redirects=False)
+    assert resp.status_code == 302
+    assert f"/sessions/{sess.id}/edit" in resp.headers["Location"]
+    db_session.expire_all()
+    assert db_session.query(SessionMedia).count() == 0
+    assert db_session.query(MediaFile).count() == 1  # file persists
+
+
+def test_library_orphans_toggle_label_uses_ui_filter(client, db_session):
+    """The 'Orphans only' label must come from the ui filter (config-driven)."""
+    resp = client.get("/library")
+    body = resp.get_data(as_text=True)
+    assert "Orphans only" in body  # default builtin

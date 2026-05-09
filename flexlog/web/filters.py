@@ -55,6 +55,19 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "session_count_singular": "session",
     "last_session": "Last:",
     "avg_score": "Avg:",
+    # M4
+    "media_library": "Media Library",
+    "photos_label": "Photos",
+    "audio_label": "Audio",
+    "videos_label": "Videos",
+    "add_media": "Add media",
+    "remove_media": "Remove",
+    "filter_all": "All",
+    "filter_orphans": "Orphans only",
+    "references_one": "ref",
+    "references_many": "refs",
+    "hard_delete_warning": "This permanently deletes the file from disk and removes all references. Cannot be undone.",
+    "delete_button": "Delete",
 }
 
 
