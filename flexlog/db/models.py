@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, func
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from flexlog.db import Base
@@ -28,8 +28,13 @@ class Person(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     alias: Mapped[str] = mapped_column(Text, nullable=False)
-    # FK to media_file lands in M4. For now, treat as a free string slot.
-    avatar_media_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # FK to media_file — layered in M4. ON DELETE SET NULL so hard-deleting a
+    # MediaFile from the library clears the avatar reference gracefully.
+    avatar_media_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("media_file.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
     updated_at: Mapped[str] = mapped_column(
         Text, nullable=False, default=_utcnow_iso, onupdate=_utcnow_iso
@@ -108,6 +113,11 @@ class Session(Base):
         cascade="all, delete-orphan",
         order_by="SessionLink.sort_order",
     )
+    media_joins: Mapped[List["SessionMedia"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="SessionMedia.sort_order",
+    )
 
     __table_args__ = (
         CheckConstraint("overall_score >= 0 AND overall_score <= 5", name="ck_session_overall_score"),
@@ -124,9 +134,49 @@ class SessionLink(Base):
     )
     url: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # FK to media_file lands in M4. Free string for now.
-    thumbnail_media_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # FK to media_file — layered in M4. ON DELETE SET NULL so hard-deleting a
+    # MediaFile from the library clears the link thumbnail reference gracefully.
+    thumbnail_media_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("media_file.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     sort_order: Mapped[int] = mapped_column(nullable=False, default=0)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
 
     session: Mapped["Session"] = relationship(back_populates="links")
+
+
+class MediaFile(Base):
+    __tablename__ = "media_file"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    sha256: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    file_key: Mapped[str] = mapped_column(Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(String, nullable=False)  # 'photo' | 'audio' | 'video'
+    original_filename: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
+
+
+class SessionMedia(Base):
+    __tablename__ = "session_media"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String, ForeignKey("session.id", ondelete="CASCADE"), nullable=False
+    )
+    media_file_id: Mapped[str] = mapped_column(
+        String, ForeignKey("media_file.id", ondelete="CASCADE"), nullable=False
+    )
+    sort_order: Mapped[int] = mapped_column(nullable=False, default=0)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
+
+    session: Mapped["Session"] = relationship(back_populates="media_joins")
+    media_file: Mapped["MediaFile"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "media_file_id", name="uq_session_media_pair"),
+        Index("ix_session_media_file", "media_file_id"),
+    )

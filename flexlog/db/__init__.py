@@ -40,7 +40,7 @@ def make_engine(db_path: Path) -> Engine:
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Return a sessionmaker bound to `engine`. Each `Session()` is independent."""
-    return sessionmaker(bind=engine, expire_on_commit=False, future=True)
+    return sessionmaker(bind=engine, expire_on_commit=True, future=True)
 
 
 _SESSION_KEY = "_flexlog_db_session"
