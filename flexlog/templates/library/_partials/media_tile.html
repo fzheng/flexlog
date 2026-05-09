@@ -1,0 +1,24 @@
+<article class="library-tile {% if row.is_orphan %}is-orphan{% endif %}">
+  <div class="library-tile-media">
+    {% if row.media_file.media_type == 'photo' %}
+      <img src="{{ url_for('media.serve', file_key=row.media_file.file_key) }}" alt="{{ row.media_file.original_filename or '' }}" loading="lazy">
+    {% elif row.media_file.media_type == 'audio' %}
+      <span class="library-icon" aria-hidden="true">♪</span>
+    {% elif row.media_file.media_type == 'video' %}
+      <span class="library-icon" aria-hidden="true">▶</span>
+    {% endif %}
+  </div>
+  <div class="library-tile-meta">
+    <p class="library-tile-name">{{ row.media_file.original_filename or row.media_file.file_key }}</p>
+    <p class="library-tile-info">
+      {{ row.media_file.media_type }} ·
+      {{ "%.0f"|format(row.media_file.file_size_bytes / 1024) }} KB ·
+      {{ row.total_refs }} {{ "references_one" | ui if row.total_refs == 1 else "references_many" | ui }}
+      {% if row.is_orphan %}<span class="orphan-badge">orphan</span>{% endif %}
+    </p>
+  </div>
+  <form method="post" action="{{ url_for('library.hard_delete_route', media_file_id=row.media_file.id) }}" onsubmit="return confirm('{{ "hard_delete_warning" | ui }}');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-danger">{{ "delete_button" | ui }}</button>
+  </form>
+</article>

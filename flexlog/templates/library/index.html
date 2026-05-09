@@ -1,0 +1,31 @@
+{% extends "_base.html" %}
+
+{% block title %}{{ "media_library" | ui }} — {{ labels.app_name }}{% endblock %}
+
+{% block content %}
+<section class="library">
+  <header class="library-header">
+    <h2>{{ "media_library" | ui }}</h2>
+    <nav class="library-filters">
+      <a class="filter-tab {% if not active_type %}active{% endif %}" href="{{ url_for('library.index', orphans=('1' if orphans_only else None)) }}">{{ "filter_all" | ui }}</a>
+      <a class="filter-tab {% if active_type == 'photo' %}active{% endif %}" href="{{ url_for('library.index', type='photo', orphans=('1' if orphans_only else None)) }}">{{ "photos_label" | ui }}</a>
+      <a class="filter-tab {% if active_type == 'audio' %}active{% endif %}" href="{{ url_for('library.index', type='audio', orphans=('1' if orphans_only else None)) }}">{{ "audio_label" | ui }}</a>
+      <a class="filter-tab {% if active_type == 'video' %}active{% endif %}" href="{{ url_for('library.index', type='video', orphans=('1' if orphans_only else None)) }}">{{ "videos_label" | ui }}</a>
+      <label class="orphans-toggle">
+        <input type="checkbox" {% if orphans_only %}checked{% endif %} onchange="window.location='{{ url_for('library.index', type=active_type) }}' + (this.checked ? '?orphans=1' : '')">
+        {{ "filter_orphans" | ui }}
+      </label>
+    </nav>
+  </header>
+
+  {% if rows %}
+    <ul class="library-grid">
+      {% for row in rows %}
+        <li>{% include "library/_partials/media_tile.html" %}</li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty-state">{{ "empty_dashboard" | ui }}</p>
+  {% endif %}
+</section>
+{% endblock %}
