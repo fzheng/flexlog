@@ -43,18 +43,31 @@ def _serialize_ratings(custom_ratings: dict[str, int]) -> str:
     return json.dumps(dict(sorted(custom_ratings.items())))
 
 
-def _replace_links(db: Session, session_row: SessionRow, links: list[dict]) -> None:
+def _replace_links(
+    db: Session,
+    session_row: SessionRow,
+    links: list[dict],
+    preserve_thumbnails: list[str | None] | None = None,
+) -> None:
     """Drop existing links and recreate from `links` (rows with URL+label).
 
     Empty/whitespace URLs are silently dropped — accommodates form submission
     of empty rows from the link manager.
+
+    `preserve_thumbnails` is an optional parallel list of thumbnail_media_id
+    values to restore on the new links (after thumbnail-clear filtering is
+    applied by the caller).
     """
     session_row.links = []
+    new_link_index = 0
     for i, link in enumerate(links):
         url = (link.get("url") or "").strip()
         if not url:
             continue
         label = (link.get("label") or "").strip() or None
+        thumb_id: str | None = None
+        if preserve_thumbnails is not None and new_link_index < len(preserve_thumbnails):
+            thumb_id = preserve_thumbnails[new_link_index]
         session_row.links.append(
             SessionLink(
                 id=str(uuid.uuid4()),
@@ -62,8 +75,10 @@ def _replace_links(db: Session, session_row: SessionRow, links: list[dict]) -> N
                 url=url,
                 label=label,
                 sort_order=i,
+                thumbnail_media_id=thumb_id,
             )
         )
+        new_link_index += 1
 
 
 def create_session(
@@ -157,17 +172,24 @@ def update_session(
     session_row.overall_score = overall_score
     session_row.custom_ratings_json = _serialize_ratings(custom_ratings)
     session_row.notes = notes if (notes and notes.strip()) else None
-    _replace_links(db, session_row, links)
+
+    # Capture thumbnail_media_ids from existing links (in URL order) before
+    # _replace_links wipes them. Apply clear_link_thumbnail_link_ids filtering
+    # so that cleared thumbs become None in the preserved list.
+    clear_ids: set[str] = set(clear_link_thumbnail_link_ids or [])
+    existing_thumbs: list[str | None] = []
+    for existing_link in session_row.links:
+        if existing_link.id in clear_ids:
+            existing_thumbs.append(None)
+        else:
+            existing_thumbs.append(existing_link.thumbnail_media_id)
+
+    _replace_links(db, session_row, links, preserve_thumbnails=existing_thumbs)
 
     if remove_session_media_ids:
         from flexlog.services.media import unlink_from_session
         for sm_id in remove_session_media_ids:
             unlink_from_session(db, sm_id)
-
-    if clear_link_thumbnail_link_ids:
-        for link in session_row.links:
-            if link.id in set(clear_link_thumbnail_link_ids):
-                link.thumbnail_media_id = None
 
     if media_uploads:
         from flexlog.services.media import link_to_session, upload_to_media_file

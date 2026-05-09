@@ -49,6 +49,10 @@ def hard_delete_route(media_file_id: str):
 def unlink_from_session_route(session_id: str, session_media_id: str):
     """Soft-unlink: remove the session_media join. File stays on disk."""
     db = get_db()
+    from flexlog.db.models import SessionMedia
+    sm = db.get(SessionMedia, session_media_id)
+    if sm is None or sm.session_id != session_id:
+        abort(404)
     unlink_from_session(db, session_media_id)
     db.commit()
     return redirect(url_for("sessions.edit", session_id=session_id))

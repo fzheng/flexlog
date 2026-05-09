@@ -57,6 +57,10 @@ class Person(Base):
         order_by="Session.session_date.desc()",
     )
 
+    __table_args__ = (
+        Index("ix_person_avatar_media", "avatar_media_id"),
+    )
+
 
 class Tag(Base):
     __tablename__ = "tag"
@@ -145,6 +149,10 @@ class SessionLink(Base):
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
 
     session: Mapped["Session"] = relationship(back_populates="links")
+
+    __table_args__ = (
+        Index("ix_session_link_thumbnail_media", "thumbnail_media_id"),
+    )
 
 
 class MediaFile(Base):

@@ -153,3 +153,147 @@ def test_traversal_filename_does_not_escape_uploads(client, db_session):
     mf = db_session.query(MediaFile).first()
     target = paths.resolve_file_key(mf.file_key)
     assert paths.uploads_dir().resolve() in target.resolve().parents
+
+
+def test_update_session_adds_new_photo(client, db_session):
+    """Edit-and-add-photo: new media join created, sort_order continues from max+1."""
+    from flexlog.db.models import MediaFile, Session as SR, SessionMedia
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    JPEG2 = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x02" + b"\x00" * 100
+    # Create with one photo
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-15", "overall_score": "4", "photos": (io.BytesIO(JPEG), "first.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    sess = db_session.query(SR).first()
+    # Edit-add a second photo
+    client.post(
+        f"/sessions/{sess.id}",
+        data={"session_date": "2026-04-15", "overall_score": "4", "photos": (io.BytesIO(JPEG2), "second.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    db_session.expire_all()
+    joins = db_session.query(SessionMedia).filter_by(session_id=sess.id).order_by(SessionMedia.sort_order).all()
+    assert len(joins) == 2
+    # Sort orders are 0 and 1 (or higher), strictly increasing
+    assert joins[0].sort_order < joins[1].sort_order
+    # Both media files exist
+    assert db_session.query(MediaFile).count() == 2
+
+
+def test_update_session_adds_link_thumbnail(client, db_session):
+    """Edit and attach a thumbnail to the existing link."""
+    from flexlog.db.models import Session as SR, SessionLink
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    # Create session with a link, no thumbnail
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={
+            "session_date": "2026-04-15", "overall_score": "4",
+            "link_url": ["https://example.com"],
+            "link_label": ["Ref"],
+        },
+        content_type="multipart/form-data",
+    )
+    sess = db_session.query(SR).first()
+    # Pre-edit: link has no thumbnail
+    link = db_session.query(SessionLink).first()
+    assert link.thumbnail_media_id is None
+
+    # Edit and attach thumbnail
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    client.post(
+        f"/sessions/{sess.id}",
+        data={
+            "session_date": "2026-04-15", "overall_score": "4",
+            "link_url": ["https://example.com"],
+            "link_label": ["Ref"],
+            "link_thumbnail": (io.BytesIO(JPEG), "thumb.jpg", "image/jpeg"),
+        },
+        content_type="multipart/form-data",
+    )
+    db_session.expire_all()
+    refreshed = db_session.query(SessionLink).first()
+    assert refreshed.thumbnail_media_id is not None
+
+
+def test_update_session_clears_link_thumbnail(client, db_session):
+    """clear_link_thumbnail[<link_id>] nulls the thumbnail FK."""
+    from flexlog.db.models import Session as SR, SessionLink
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    # Create session with a link AND thumbnail
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={
+            "session_date": "2026-04-15", "overall_score": "4",
+            "link_url": ["https://example.com"],
+            "link_label": ["Ref"],
+            "link_thumbnail": (io.BytesIO(JPEG), "thumb.jpg", "image/jpeg"),
+        },
+        content_type="multipart/form-data",
+    )
+    sess = db_session.query(SR).first()
+    link = db_session.query(SessionLink).first()
+    assert link.thumbnail_media_id is not None
+    link_id = link.id
+
+    # Edit: clear the thumbnail. Re-submit the same link content with clear_link_thumbnail.
+    client.post(
+        f"/sessions/{sess.id}",
+        data={
+            "session_date": "2026-04-15", "overall_score": "4",
+            "link_url": ["https://example.com"],
+            "link_label": ["Ref"],
+            "clear_link_thumbnail": [link_id],
+        },
+        content_type="multipart/form-data",
+    )
+    db_session.expire_all()
+    # _replace_links creates new SessionLink rows with new UUIDs; query by session instead
+    links_after = db_session.query(SessionLink).filter_by(session_id=sess.id).all()
+    assert len(links_after) == 1
+    assert links_after[0].thumbnail_media_id is None
+
+
+def test_update_session_remove_session_media_via_route(client, db_session):
+    """End-to-end: edit form posts remove_session_media[sm_id] → join dropped, file persists."""
+    from flexlog.db.models import MediaFile, Session as SR, SessionMedia
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-15", "overall_score": "4", "photos": (io.BytesIO(JPEG), "x.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    sess = db_session.query(SR).first()
+    sm = db_session.query(SessionMedia).first()
+    sm_id = sm.id
+
+    # Edit: remove the session_media row
+    client.post(
+        f"/sessions/{sess.id}",
+        data={
+            "session_date": "2026-04-15",
+            "overall_score": "4",
+            "remove_session_media": [sm_id],
+        },
+        content_type="multipart/form-data",
+    )
+    db_session.expire_all()
+    assert db_session.query(SessionMedia).count() == 0
+    assert db_session.query(MediaFile).count() == 1

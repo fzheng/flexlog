@@ -135,3 +135,38 @@ def test_library_orphans_toggle_label_uses_ui_filter(client, db_session):
     resp = client.get("/library")
     body = resp.get_data(as_text=True)
     assert "Orphans only" in body  # default builtin
+
+
+def test_unlink_from_session_404_on_mismatched_session_id(client, db_session):
+    """Posting an sm_id that belongs to a different session must 404."""
+    import io
+    from flexlog.db.models import Session as SR, SessionMedia
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    # Create two sessions, put a photo on the first
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-01", "overall_score": "3", "photos": (io.BytesIO(JPEG), "x.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-05-01", "overall_score": "4"},
+        content_type="multipart/form-data",
+    )
+    sessions = db_session.query(SR).order_by(SR.session_date).all()
+    sm = db_session.query(SessionMedia).first()  # belongs to sessions[0]
+    # Try to unlink under sessions[1]'s URL
+    resp = client.post(f"/sessions/{sessions[1].id}/media/{sm.id}/unlink")
+    assert resp.status_code == 404
+    # Verify the join still exists
+    db_session.expire_all()
+    assert db_session.query(SessionMedia).count() == 1
+
+
+def test_unlink_from_session_404_on_unknown_sm_id(client):
+    resp = client.post("/sessions/anything/media/no-such-sm-id/unlink")
+    assert resp.status_code == 404
