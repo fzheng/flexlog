@@ -1,0 +1,181 @@
+import hashlib
+import io
+
+import pytest
+from werkzeug.datastructures import FileStorage
+
+from flexlog import paths
+from flexlog.db.models import MediaFile
+from flexlog.services.media import (
+    MediaUploadError,
+    UnsupportedMediaTypeError,
+    _detect_mime_from_bytes,
+    upload_to_media_file,
+)
+
+
+# Tiny valid signatures — the magic-byte detection only needs the first ~12 bytes.
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+WEBP_BYTES = b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 100
+WAV_BYTES = b"RIFF\x00\x00\x00\x00WAVE" + b"\x00" * 100
+MP3_BYTES = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 100  # ID3v2 header
+MP4_BYTES = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom" + b"\x00" * 100
+WEBM_BYTES = b"\x1a\x45\xdf\xa3" + b"\x00" * 100  # EBML signature
+
+
+def _file_storage(name: str, data: bytes, mimetype: str) -> FileStorage:
+    return FileStorage(stream=io.BytesIO(data), filename=name, content_type=mimetype)
+
+
+def test_upload_creates_media_file_row(app, db_session, tmp_data_dir):
+    """Happy path: upload a JPEG, get a MediaFile row + a file on disk."""
+    with app.app_context():
+        fs = _file_storage("vacation.jpg", JPEG_BYTES, "image/jpeg")
+        mf = upload_to_media_file(db_session, fs)
+        db_session.commit()
+        assert isinstance(mf, MediaFile)
+        assert mf.media_type == "photo"
+        assert mf.mime_type == "image/jpeg"
+        assert mf.file_size_bytes == len(JPEG_BYTES)
+        assert mf.original_filename == "vacation.jpg"
+        # File exists at the resolved key
+        target = paths.resolve_file_key(mf.file_key)
+        assert target.exists()
+        assert target.read_bytes() == JPEG_BYTES
+
+
+def test_upload_dedup_by_sha256(app, db_session):
+    """Uploading identical bytes twice produces ONE row and ONE file on disk."""
+    with app.app_context():
+        fs1 = _file_storage("a.jpg", JPEG_BYTES, "image/jpeg")
+        mf1 = upload_to_media_file(db_session, fs1)
+        db_session.commit()
+        fs2 = _file_storage("b.jpg", JPEG_BYTES, "image/jpeg")  # different name, same bytes
+        mf2 = upload_to_media_file(db_session, fs2)
+        db_session.commit()
+        assert mf1.id == mf2.id  # same row reused
+        assert mf1.original_filename == "a.jpg"  # first-seen wins
+        # Single file on disk
+        target = paths.resolve_file_key(mf1.file_key)
+        assert target.exists()
+        # uploads/.tmp/ is empty
+        tmp_dir = paths.tmp_uploads_dir()
+        assert list(tmp_dir.iterdir()) == [] or all(not f.is_file() for f in tmp_dir.iterdir())
+
+
+def test_upload_classifies_mime(app, db_session):
+    """media_type is derived from MIME for each supported family."""
+    with app.app_context():
+        for name, data, mimetype, expected_type in [
+            ("a.jpg", JPEG_BYTES, "image/jpeg", "photo"),
+            ("a.png", PNG_BYTES, "image/png", "photo"),
+            ("a.webp", WEBP_BYTES, "image/webp", "photo"),
+            ("a.mp3", MP3_BYTES, "audio/mpeg", "audio"),
+            ("a.wav", WAV_BYTES, "audio/wav", "audio"),
+            ("a.mp4", MP4_BYTES, "video/mp4", "video"),
+            ("a.webm", WEBM_BYTES, "video/webm", "video"),
+        ]:
+            fs = _file_storage(name, data, mimetype)
+            mf = upload_to_media_file(db_session, fs)
+            db_session.commit()
+            assert mf.media_type == expected_type, f"{mimetype} → expected {expected_type}, got {mf.media_type}"
+
+
+def test_upload_rejects_unsupported_mime(app, db_session):
+    """A .pdf or .exe upload is rejected at the MIME-allowlist gate."""
+    with app.app_context():
+        fs = _file_storage("evil.exe", b"MZ\x90\x00" * 100, "application/octet-stream")
+        with pytest.raises(UnsupportedMediaTypeError):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_rejects_mime_extension_mismatch(app, db_session):
+    """An attacker tries to pass .exe contents with a JPEG MIME type."""
+    with app.app_context():
+        fs = _file_storage("evil.jpg", b"MZ\x90\x00" * 100, "image/jpeg")
+        with pytest.raises(MediaUploadError, match="magic"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_rejects_size_over_limit(app, db_session):
+    """File exceeding config.limits.max_upload_mb_per_file is rejected."""
+    with app.app_context():
+        big = JPEG_BYTES + b"\x00" * (1024 * 1024)  # ~1 MB
+        # Force the limit down to 0 MB to trip the guard regardless of file size
+        cfg = app.config["FLEXLOG"]
+        # Replace the frozen Limits dataclass by rebuilding it inline
+        from dataclasses import replace
+        new_limits = replace(cfg.limits, max_upload_mb_per_file=0)
+        from dataclasses import replace as cfg_replace
+        app.config["FLEXLOG"] = cfg_replace(cfg, limits=new_limits)
+        fs = _file_storage("big.jpg", big, "image/jpeg")
+        with pytest.raises(MediaUploadError, match="size"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_temp_file_cleaned_up_on_error(app, db_session):
+    """When upload fails mid-pipeline, the tmp file is removed."""
+    with app.app_context():
+        fs = _file_storage("evil.exe", b"MZ" * 1000, "application/octet-stream")
+        with pytest.raises(UnsupportedMediaTypeError):
+            upload_to_media_file(db_session, fs)
+        # No file should remain in .tmp
+        from flexlog import paths as p
+        leftover = list((p.tmp_uploads_dir()).iterdir())
+        # filter to regular files (not subdirs)
+        leftover = [x for x in leftover if x.is_file()]
+        assert leftover == []
+
+
+def test_upload_writes_correct_disk_path(app, db_session):
+    """Verifies the content-addressed sharded layout: <aa>/<bb>/<sha>.<ext>."""
+    with app.app_context():
+        fs = _file_storage("vacation.jpg", JPEG_BYTES, "image/jpeg")
+        mf = upload_to_media_file(db_session, fs)
+        db_session.commit()
+        sha = hashlib.sha256(JPEG_BYTES).hexdigest()
+        assert mf.sha256 == sha
+        assert mf.file_key == f"{sha[0:2]}/{sha[2:4]}/{sha}.jpg"
+
+
+def test_detect_mime_from_bytes_signatures():
+    """Pure-function magic-byte → MIME detector."""
+    assert _detect_mime_from_bytes(JPEG_BYTES) == "image/jpeg"
+    assert _detect_mime_from_bytes(PNG_BYTES) == "image/png"
+    assert _detect_mime_from_bytes(WEBP_BYTES) == "image/webp"
+    # Non-image: returns None (audio/video are accepted by extension+content-type only)
+    assert _detect_mime_from_bytes(b"random text") is None
+
+
+def test_upload_rejects_empty_file(app, db_session):
+    with app.app_context():
+        fs = _file_storage("empty.jpg", b"", "image/jpeg")
+        with pytest.raises(MediaUploadError, match="empty"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_preserves_original_filename(app, db_session):
+    """original_filename is recorded for display."""
+    with app.app_context():
+        fs = _file_storage("My Vacation 2026.jpg", JPEG_BYTES, "image/jpeg")
+        mf = upload_to_media_file(db_session, fs)
+        db_session.commit()
+        assert mf.original_filename == "My Vacation 2026.jpg"
+
+
+def test_upload_handles_filename_with_path_traversal(app, db_session):
+    """An attacker-controlled filename like '../../etc/passwd.jpg' must not
+    affect the on-disk path; the path is derived from the SHA-256, not the
+    original filename.
+    """
+    with app.app_context():
+        fs = _file_storage("../../etc/passwd.jpg", JPEG_BYTES, "image/jpeg")
+        mf = upload_to_media_file(db_session, fs)
+        db_session.commit()
+        # The file lives under uploads/<aa>/<bb>/<sha>.jpg, not under any
+        # parent of uploads/.
+        target = paths.resolve_file_key(mf.file_key)
+        assert paths.uploads_dir() in target.parents or target.parent.parent.parent == paths.uploads_dir()
+        # original_filename is recorded as-is — escaping happens at render time.
+        assert mf.original_filename == "../../etc/passwd.jpg"
