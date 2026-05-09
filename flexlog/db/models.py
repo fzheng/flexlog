@@ -20,7 +20,7 @@ from flexlog.db import Base
 
 def _utcnow_iso() -> str:
     """ISO-8601 UTC timestamp string (default for created_at/updated_at)."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 class Person(Base):

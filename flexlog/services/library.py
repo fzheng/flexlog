@@ -1,0 +1,134 @@
+"""Media Library queries: list with reference counts, orphan filter, hard delete.
+
+Hard-delete is the ONLY route that removes a file from disk. It must:
+  1. Inside one DB transaction: delete session_media joins (FK CASCADE);
+     null out person.avatar_media_id and session_link.thumbnail_media_id
+     (FK SET NULL); delete the media_file row.
+  2. After commit: paths.resolve_file_key(...).unlink(missing_ok=True).
+
+Order matters: DB commit FIRST, disk unlink SECOND. A failure between
+the two leaves an orphaned file on disk (recoverable manually) rather
+than a dangling DB row pointing at a deleted file.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from flexlog import paths
+from flexlog.db.models import MediaFile, Person, SessionLink, SessionMedia
+
+
+class MediaNotFoundError(LookupError):
+    """Raised by hard_delete when the target media_file id does not exist."""
+
+
+@dataclass(frozen=True)
+class References:
+    session_media_count: int
+    avatar_count: int
+    link_thumbnail_count: int
+
+    @property
+    def total(self) -> int:
+        return self.session_media_count + self.avatar_count + self.link_thumbnail_count
+
+
+@dataclass(frozen=True)
+class MediaLibraryRow:
+    media_file: MediaFile
+    total_refs: int
+
+    @property
+    def is_orphan(self) -> bool:
+        return self.total_refs == 0
+
+
+def get_references(db: Session, media_file_id: str) -> References:
+    """Count references across session_media, person.avatar_media_id,
+    session_link.thumbnail_media_id.
+    """
+    sm = db.execute(
+        select(func.count()).select_from(SessionMedia).where(SessionMedia.media_file_id == media_file_id)
+    ).scalar_one()
+    avatar = db.execute(
+        select(func.count()).select_from(Person).where(Person.avatar_media_id == media_file_id)
+    ).scalar_one()
+    thumb = db.execute(
+        select(func.count()).select_from(SessionLink).where(SessionLink.thumbnail_media_id == media_file_id)
+    ).scalar_one()
+    return References(
+        session_media_count=int(sm),
+        avatar_count=int(avatar),
+        link_thumbnail_count=int(thumb),
+    )
+
+
+def list_library(
+    db: Session,
+    media_type: str | None = None,
+    orphans_only: bool = False,
+) -> list[MediaLibraryRow]:
+    """List MediaLibraryRows (newest first), optionally filtered."""
+    stmt = select(MediaFile).order_by(MediaFile.created_at.desc())
+    if media_type is not None:
+        stmt = stmt.where(MediaFile.media_type == media_type)
+    files = list(db.execute(stmt).scalars())
+
+    out: list[MediaLibraryRow] = []
+    for mf in files:
+        refs = get_references(db, mf.id)
+        if orphans_only and refs.total > 0:
+            continue
+        out.append(MediaLibraryRow(media_file=mf, total_refs=refs.total))
+    return out
+
+
+def hard_delete(db: Session, media_file_id: str) -> None:
+    """Hard-delete a media file: cascade joins, null out FKs, drop row, unlink disk file.
+
+    Caller is responsible for `db.commit()` after the call. The disk unlink
+    happens AFTER the commit in the same call (so a partial failure never
+    leaves a dangling DB row).
+    """
+    mf = db.get(MediaFile, media_file_id)
+    if mf is None:
+        raise MediaNotFoundError(media_file_id)
+    file_key = mf.file_key
+    # The FK constraints handle cascade (session_media) and SET NULL (avatar,
+    # thumbnail). Just delete the row.
+    db.delete(mf)
+    db.flush()
+    # The caller should commit AFTER this returns. We perform the disk unlink
+    # only after the caller commits. To honor the spec's commit-then-unlink
+    # ordering we expose a deferred-unlink mechanism: stash the file_key on
+    # the session's info dict so the caller (e.g. the route handler) can
+    # unlink after commit. But for service ergonomics we offer the simpler
+    # contract: caller commits, then calls a partner function. To keep the
+    # API one-call-per-action, we instead do: delete + flush, then on commit
+    # we unlink. Easiest way: use SQLAlchemy event 'after_commit'.
+    #
+    # See docs/superpowers/specs/2026-05-07-flexlog-design.md §5.2.
+    from sqlalchemy import event
+
+    # Use a one-shot flag to guard against multiple firings. We do NOT call
+    # event.remove() inside the callback because SA 2.x iterates listeners
+    # in a deque and mutating it during iteration raises RuntimeError. The
+    # listener persists on the session but is a no-op after the first fire;
+    # since sessions are request-scoped this doesn't accumulate state.
+    fired: list[bool] = []
+
+    def _unlink_after_commit(_session):
+        if fired:
+            return
+        fired.append(True)
+        try:
+            paths.resolve_file_key(file_key).unlink(missing_ok=True)
+        except Exception:
+            # Disk failure leaves an orphaned file (recoverable manually).
+            pass
+
+    event.listen(db, "after_commit", _unlink_after_commit)
