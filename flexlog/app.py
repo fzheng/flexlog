@@ -69,6 +69,12 @@ def create_app() -> Flask:
     def _inject_labels() -> dict[str, object]:
         return {"labels": build_labels_context(config)}
 
+    # Prevent Werkzeug from issuing 308 redirects for URLs with encoded slashes
+    # (e.g. /media/%2Fetc%2Fpasswd). Without this, %2F gets decoded to / and
+    # Werkzeug emits a permanent redirect to normalize double slashes before our
+    # route handler can reject the path traversal attempt.
+    app.url_map.merge_slashes = False
+
     # 8. Register blueprints
     register_blueprints(app)
 
