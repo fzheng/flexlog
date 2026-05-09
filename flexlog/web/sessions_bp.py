@@ -75,6 +75,21 @@ def _parse_links_from_request() -> list[dict]:
     return out
 
 
+def _gather_uploads() -> list:
+    """Gather all uploaded files from photos[], audios[], videos[] into one list."""
+    out = []
+    for name in ("photos", "audios", "videos"):
+        for fs in request.files.getlist(name):
+            if fs and fs.filename:
+                out.append(fs)
+    return out
+
+
+def _gather_link_thumbnails() -> list:
+    """Read link_thumbnail[] file inputs (parallel to link_url[]/link_label[])."""
+    return list(request.files.getlist("link_thumbnail"))
+
+
 @sessions_bp.get("/people/<person_id>/sessions/new")
 def new(person_id: str):
     person = _person_or_404(person_id)
@@ -112,6 +127,8 @@ def create(person_id: str):
         custom_ratings=_parse_custom_ratings_from_request(),
         notes=(form.notes.data or None),
         links=_parse_links_from_request(),
+        media_uploads=_gather_uploads(),
+        link_thumbnails=_gather_link_thumbnails(),
     )
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_row.id))
@@ -184,6 +201,10 @@ def update(session_id: str):
             custom_ratings=_parse_custom_ratings_from_request(),
             notes=(form.notes.data or None),
             links=_parse_links_from_request(),
+            media_uploads=_gather_uploads(),
+            link_thumbnails=_gather_link_thumbnails(),
+            remove_session_media_ids=request.form.getlist("remove_session_media"),
+            clear_link_thumbnail_link_ids=request.form.getlist("clear_link_thumbnail"),
         )
     except SessionNotFoundError:
         abort(404)

@@ -74,6 +74,8 @@ def create_session(
     custom_ratings: dict[str, int],
     notes: str | None,
     links: list[dict],
+    media_uploads: list | None = None,
+    link_thumbnails: list | None = None,
 ) -> SessionRow:
     """Create a Session row + its links. Caller commits."""
     person = db.get(Person, person_id)
@@ -90,6 +92,27 @@ def create_session(
     db.add(session_row)
     db.flush()
     _replace_links(db, session_row, links)
+
+    if media_uploads:
+        from flexlog.services.media import link_to_session, upload_to_media_file
+        next_sort = 0
+        for fs in media_uploads:
+            if fs is None or fs.filename == "":
+                continue
+            mf = upload_to_media_file(db, fs)
+            link_to_session(db, session_row.id, mf.id, sort_order=next_sort)
+            next_sort += 1
+
+    if link_thumbnails:
+        from flexlog.services.media import upload_to_media_file
+        for i, thumb_fs in enumerate(link_thumbnails):
+            if thumb_fs is None or thumb_fs.filename == "":
+                continue
+            if i >= len(session_row.links):
+                continue
+            mf = upload_to_media_file(db, thumb_fs)
+            session_row.links[i].thumbnail_media_id = mf.id
+
     return session_row
 
 
@@ -121,6 +144,10 @@ def update_session(
     custom_ratings: dict[str, int],
     notes: str | None,
     links: list[dict],
+    media_uploads: list | None = None,
+    link_thumbnails: list | None = None,
+    remove_session_media_ids: list[str] | None = None,
+    clear_link_thumbnail_link_ids: list[str] | None = None,
 ) -> SessionRow:
     session_row = get_session(db, session_id)
     if session_row is None:
@@ -131,6 +158,38 @@ def update_session(
     session_row.custom_ratings_json = _serialize_ratings(custom_ratings)
     session_row.notes = notes if (notes and notes.strip()) else None
     _replace_links(db, session_row, links)
+
+    if remove_session_media_ids:
+        from flexlog.services.media import unlink_from_session
+        for sm_id in remove_session_media_ids:
+            unlink_from_session(db, sm_id)
+
+    if clear_link_thumbnail_link_ids:
+        for link in session_row.links:
+            if link.id in set(clear_link_thumbnail_link_ids):
+                link.thumbnail_media_id = None
+
+    if media_uploads:
+        from flexlog.services.media import link_to_session, upload_to_media_file
+        existing_max = max((sm.sort_order for sm in session_row.media_joins), default=-1)
+        next_sort = existing_max + 1
+        for fs in media_uploads:
+            if fs is None or fs.filename == "":
+                continue
+            mf = upload_to_media_file(db, fs)
+            link_to_session(db, session_id, mf.id, sort_order=next_sort)
+            next_sort += 1
+
+    if link_thumbnails:
+        from flexlog.services.media import upload_to_media_file
+        for i, thumb_fs in enumerate(link_thumbnails):
+            if thumb_fs is None or thumb_fs.filename == "":
+                continue
+            if i >= len(session_row.links):
+                continue
+            mf = upload_to_media_file(db, thumb_fs)
+            session_row.links[i].thumbnail_media_id = mf.id
+
     return session_row
 
 
