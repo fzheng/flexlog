@@ -142,3 +142,34 @@ def test_get_db_returns_same_session_within_request(app):
         b = get_db()
         assert a is b
         close_db()
+
+
+def test_create_app_sweeps_stale_tmp_files(tmp_data_dir, monkeypatch):
+    """Stale .tmp files (>1 hour old) are removed at startup; fresh ones survive."""
+    import os
+    import time
+
+    from flexlog.app import create_app
+    from flexlog import paths
+
+    # Pre-create the layout so we can drop files in
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_data_dir))
+    paths.ensure_layout()
+    tmp = paths.tmp_uploads_dir()
+    stale = tmp / "stale.part"
+    fresh = tmp / "fresh.part"
+    stale.write_bytes(b"old"); fresh.write_bytes(b"new")
+    # Backdate stale to 2 hours ago
+    two_hours_ago = time.time() - 7200
+    os.utime(stale, (two_hours_ago, two_hours_ago))
+
+    create_app()
+
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_create_app_sets_max_content_length(tmp_data_dir):
+    from flexlog.app import create_app
+    app = create_app()
+    assert app.config["MAX_CONTENT_LENGTH"] == 3 * 1024 * 1024 * 1024

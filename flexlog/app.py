@@ -34,6 +34,18 @@ def create_app() -> Flask:
     data_dir = paths.data_dir()
     paths.ensure_layout()
 
+    # Sweep stale uploads/.tmp/ files (>1 hour old) on startup per spec §4.3.
+    import time
+    tmp_dir = paths.tmp_uploads_dir()
+    cutoff = time.time() - 3600
+    if tmp_dir.exists():
+        for entry in tmp_dir.iterdir():
+            try:
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     # 2. Load (or bootstrap) config.json
     config: Config = load_or_bootstrap(paths.config_path())
 
@@ -50,6 +62,9 @@ def create_app() -> Flask:
     app.config["FLEXLOG_DATA_DIR"] = str(data_dir)
     app.config["SECRET_KEY"] = secret_key
     app.config["WTF_CSRF_ENABLED"] = True
+    # Allow up to 3 GiB request body so 500 MB files × multiple uploads work.
+    # Per-file size is enforced server-side in services/media.py.
+    app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024 * 1024
     app.debug = os.environ.get("FLEXLOG_DEBUG", "") == "1"
 
     # 5. CSRF
