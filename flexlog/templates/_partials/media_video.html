@@ -1,0 +1,4 @@
+<li class="video-item">
+  <video controls preload="metadata" src="{{ url_for('media.serve', file_key=media.file_key) }}"></video>
+  <span class="video-name">{{ media.original_filename or media.file_key }}</span>
+</li>

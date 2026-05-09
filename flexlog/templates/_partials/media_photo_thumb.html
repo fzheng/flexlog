@@ -1,0 +1,8 @@
+<a class="photo-thumb"
+   href="{{ url_for('media.serve', file_key=media.file_key) }}"
+   data-pswp-width="1600"
+   data-pswp-height="1200"
+   target="_blank"
+   rel="noopener noreferrer">
+  <img src="{{ url_for('media.serve', file_key=media.file_key) }}" alt="{{ media.original_filename or '' }}" loading="lazy">
+</a>

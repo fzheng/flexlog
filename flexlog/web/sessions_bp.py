@@ -101,6 +101,7 @@ def new(person_id: str):
         rating_dimensions=_enabled_rating_dimensions(),
         existing_ratings={},
         existing_links=[],
+        existing_media=[],
     )
 
 
@@ -117,6 +118,7 @@ def create(person_id: str):
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_custom_ratings_from_request(),
             existing_links=_parse_links_from_request(),
+            existing_media=[],
         ), 400
     db = get_db()
     session_row = create_session(
@@ -142,15 +144,27 @@ def detail(session_id: str):
     s = _session_or_404(session_id)
     enabled_ids = [d.id for d in _enabled_rating_dimensions()]
     current, archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
-    # Build display ratings with their dimension labels
     label_map = {d.id: d.label for d in _enabled_rating_dimensions()}
     current_with_labels = [(rid, label_map[rid], val) for rid, val in current]
+    photos = [j.media_file for j in s.media_joins if j.media_file.media_type == "photo"]
+    audios = [j.media_file for j in s.media_joins if j.media_file.media_type == "audio"]
+    videos = [j.media_file for j in s.media_joins if j.media_file.media_type == "video"]
+    # Build link_thumbnails: {link.id: MediaFile}
+    from flexlog.db.models import MediaFile
+    db = get_db()
+    link_thumbnails = {}
+    for link in s.links:
+        if link.thumbnail_media_id:
+            mf = db.get(MediaFile, link.thumbnail_media_id)
+            if mf is not None:
+                link_thumbnails[link.id] = mf
     return render_template(
         "sessions/detail.html",
-        person=s.person,
-        session=s,
+        person=s.person, session=s,
         current_ratings=current_with_labels,
         archived_ratings=archived,
+        photos=photos, audios=audios, videos=videos,
+        link_thumbnails=link_thumbnails,
     )
 
 
@@ -165,7 +179,11 @@ def edit(session_id: str):
     enabled_ids = [d.id for d in _enabled_rating_dimensions()]
     current_pairs, _archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
     existing_ratings = dict(current_pairs)
-    existing_links = [{"url": li.url, "label": li.label or ""} for li in s.links]
+    existing_links = [
+        {"id": li.id, "url": li.url, "label": li.label or "", "thumbnail_media_id": li.thumbnail_media_id}
+        for li in s.links
+    ]
+    existing_media = list(s.media_joins)
     return render_template(
         "sessions/edit.html",
         form=form,
@@ -174,6 +192,7 @@ def edit(session_id: str):
         rating_dimensions=_enabled_rating_dimensions(),
         existing_ratings=existing_ratings,
         existing_links=existing_links,
+        existing_media=existing_media,
     )
 
 
@@ -191,6 +210,7 @@ def update(session_id: str):
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_custom_ratings_from_request(),
             existing_links=_parse_links_from_request(),
+            existing_media=list(s.media_joins),
         ), 400
     db = get_db()
     try:

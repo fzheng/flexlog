@@ -44,6 +44,39 @@
     {% endif %}
   </section>
 
+  {% if photos %}
+  <section class="media-section photos-section">
+    <h3>{{ "photos_label" | ui }}</h3>
+    <div id="photo-gallery" class="photo-grid">
+      {% for media in photos %}
+        {% include "_partials/media_photo_thumb.html" %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if audios %}
+  <section class="media-section audios-section">
+    <h3>{{ "audio_label" | ui }}</h3>
+    <ul class="audio-list">
+      {% for media in audios %}
+        {% include "_partials/media_audio.html" %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  {% if videos %}
+  <section class="media-section videos-section">
+    <h3>{{ "videos_label" | ui }}</h3>
+    <ul class="video-list">
+      {% for media in videos %}
+        {% include "_partials/media_video.html" %}
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
   <section class="links-display">
     <h3>{{ "links_heading" | ui }}</h3>
     {% if session.links %}
@@ -57,4 +90,9 @@
     {% endif %}
   </section>
 </section>
+
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/photoswipe/photoswipe.css') }}">
+<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe.umd.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe-lightbox.umd.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/photoswipe_init.js') }}" defer></script>
 {% endblock %}

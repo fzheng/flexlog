@@ -96,6 +96,48 @@ def test_link_thumbnail_attached(client, db_session):
     assert link.thumbnail_media_id is not None
 
 
+def test_detail_renders_audio_player(client, db_session):
+    import io
+    from flexlog.services.people import create_person
+    from flexlog.services.sessions import create_session
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    MP3 = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 100
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-15", "overall_score": "4", "audios": (io.BytesIO(MP3), "x.mp3", "audio/mpeg")},
+        content_type="multipart/form-data",
+    )
+    from flexlog.db.models import Session as SR
+    sid = db_session.query(SR).first().id
+    resp = client.get(f"/sessions/{sid}")
+    body = resp.get_data(as_text=True)
+    assert "<audio" in body
+    assert "controls" in body
+
+
+def test_detail_renders_photo_gallery(client, db_session):
+    import io
+    from flexlog.services.people import create_person
+
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    client.post(
+        f"/people/{p.id}/sessions",
+        data={"session_date": "2026-04-15", "overall_score": "4", "photos": (io.BytesIO(JPEG_BYTES), "x.jpg", "image/jpeg")},
+        content_type="multipart/form-data",
+    )
+    from flexlog.db.models import Session as SR
+    sid = db_session.query(SR).first().id
+    resp = client.get(f"/sessions/{sid}")
+    body = resp.get_data(as_text=True)
+    assert "photo-grid" in body
+    assert "data-pswp-width" in body
+    assert "/media/" in body
+
+
 def test_traversal_filename_does_not_escape_uploads(client, db_session):
     """An uploader's malicious filename with .. doesn't escape uploads/."""
     from flexlog import paths

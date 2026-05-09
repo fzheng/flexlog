@@ -1,5 +1,11 @@
-{# Read-only link row used on the session detail page. Caller passes `link`. #}
+{# Read-only link row used on the session detail page. Caller passes `link` and `link_thumbnails`. #}
 <li class="link-display">
+  {% if link.thumbnail_media_id and link_thumbnails and link.id in link_thumbnails %}
+    <img class="link-thumb-image"
+         src="{{ url_for('media.serve', file_key=link_thumbnails[link.id].file_key) }}"
+         alt=""
+         loading="lazy">
+  {% endif %}
   <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">
     {{ link.label or link.url }}
   </a>
