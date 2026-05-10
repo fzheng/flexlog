@@ -1,141 +1,147 @@
 # flexlog
 
-Local-only, single-user web app for recording recurring 1v1 sessions with people.
+A local-first, single-user web app for recording recurring 1-on-1 sessions
+with people you interview, survey, poll, or talk to regularly. The same
+codebase covers job interviews, journalist interviews, polls, school
+surveys, coaching journals, language exchange logs — anything that's a
+person, a date, some notes, maybe some media, repeated.
 
-Internal codename for the **1v1 Journal** product spec — see
-`docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`.
+Privacy by default: no cloud, no accounts, no telemetry, no third-party
+network requests. Your SQLite database, photos, audio, video, secret key
+and admin password hash all live in a single local directory you back up
+by copying.
 
-Latest milestone shipped: **M5 — Avatar cropper + dashboard sort + polish — MVP complete** (see `## What's next`
-for the roadmap).
+## Use cases
 
-## Requirements
+flexlog ships with the labels of an "Interview Log" but every user-facing
+string is in `config.json`. Rename the entity, the session, the rating
+dimensions, the search placeholder — the same code becomes:
 
-- Python 3.11 or newer
-- `make`, `curl` (for the smoke target)
-- A directory you control where flexlog can store its database, uploads, and config
+- **Job interviews:** track candidates across rounds, score on rubrics
+  you define, attach a voice memo of the conversation, search by tag
+  ("backend", "senior", "remote-only").
+- **Journalist interviews:** keep sources organized by beat, audio-record
+  inline, link out to the published piece, attach reference photos.
+- **Polls:** one "respondent" per row, custom rating dimensions for each
+  question, dashboard sort by averaged answer.
+- **School surveys:** students as the entity, periodic check-ins as
+  sessions, custom dimensions for whatever you track (engagement,
+  understanding, sentiment).
+- **Coaching, language exchange, peer reviews, mentoring:** anything
+  recurring 1-on-1 that benefits from a date-stamped, searchable log
+  with media + rating dimensions.
 
-## Quick start with make
+### Worked example: journalist interviews
 
-```bash
-git clone <this repo> flexlog
-cd flexlog
-make install        # creates .venv and installs flexlog with dev extras
-make run            # starts the app at http://127.0.0.1:5050/
-                    # default data dir: ./flexlog-data
-make test           # runs the test suite with the 85% coverage gate
-make smoke          # end-to-end startup + dashboard check against a tmp dir
-make help           # list all targets
+Edit `$FLEXLOG_DATA_DIR/config.json`:
+
+```json
+{
+  "app": {
+    "name": "Source Log",
+    "entity_singular": "Source",
+    "entity_plural": "Sources",
+    "session_singular": "Interview",
+    "session_plural": "Interviews"
+  },
+  "ratings": [
+    {"id": "candor", "label": "Candor", "description": "How forthcoming the source was", "scale_min": 1, "scale_max": 5, "enabled": true},
+    {"id": "depth",  "label": "Depth",  "description": "Substance of the material", "scale_min": 1, "scale_max": 5, "enabled": true}
+  ],
+  "ui_strings": {
+    "new_person": "Add Source",
+    "add_session": "Log Interview",
+    "search_placeholder": "Search sources or beats",
+    "empty_dashboard": "No sources yet. Add your first source to begin."
+  }
+}
 ```
 
-Override variables on the command line:
-
-```bash
-make run DATA_DIR=/abs/path/of/your/choice PORT=5151
-make install PYTHON=python3.11
-```
-
-## Configure your data directory
-
-flexlog refuses to start unless `FLEXLOG_DATA_DIR` points at an absolute,
-existing, writable directory. `make run` creates `./flexlog-data` for you
-and sets the variable for you. To point at somewhere else:
-
-```bash
-mkdir -p ~/flexlog-data
-make run DATA_DIR=$HOME/flexlog-data
-```
-
-On first run, flexlog writes a default `config.json` into that directory if
-none exists. Edit it freely — visit `/settings` and click **Reload now** to
-pick up label / rating-dimension changes without restarting.
-
-`FLEXLOG_DEBUG=1` enables Flask debug mode (do not do this when serving
-real data).
-
-## Set the admin password (first run)
-
-flexlog requires the SHA-512 hash of an admin password in
-`$FLEXLOG_DATA_DIR/.env`. Without it, `make run` refuses to start.
-
-```bash
-make hash-password
-# password: ********
-# FLEXLOG_ADMIN_PASSWORD_SHA512=<128-hex>
-```
-
-Copy the line into `$FLEXLOG_DATA_DIR/.env`:
-
-```bash
-echo 'FLEXLOG_ADMIN_PASSWORD_SHA512=<paste-the-hex>' > $FLEXLOG_DATA_DIR/.env
-chmod 600 $FLEXLOG_DATA_DIR/.env
-```
-
-Now `make run` starts. Visiting `/` shows a fake search page; type the
-password to log in, anything else 303-redirects to a real Google search
-of that term. Sessions expire after 30 minutes of inactivity, on server
-restart, or when you click Logout.
-
-## Manual install + run (without make)
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-export FLEXLOG_DATA_DIR=$HOME/flexlog-data && mkdir -p "$FLEXLOG_DATA_DIR"
-flexlog                 # or: python -m flexlog
-```
-
-## Customizing labels
-
-The `app`, `ui_strings`, and `ratings` sections of `config.json` rethread
-every user-facing label. The same codebase covers interview logs, coaching
-journals, language exchange logs, etc. without code changes. See
-`docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md` §6.1 for the
-schema and `flexlog/config_loader.py` for the validator.
-
-## Backup / restore
-
-Stop the app, then copy the entire `$FLEXLOG_DATA_DIR` directory. To
-restore: place the directory on the new machine, set `FLEXLOG_DATA_DIR`
-to its absolute path, and run `flexlog`. Both the SQLite database (M2+)
-and uploaded media (M4+) are inside that directory.
+Save, visit `/settings`, click **Reload now** — the new labels appear
+across the dashboard, person detail, session form, and Media Library
+without restarting the app.
 
 ## Features
 
-- Add, edit, delete people; global tags; dashboard with search + per-person aggregates
-- **Avatar cropper (M5):** circular client-side crop on person new/edit; replace leaves the previous avatar in the Media Library as an orphan
-- **Dashboard sort (M5):** sort by alias / last session / total sessions / average score / any enabled custom rating dimension; people with no sessions sort to the bottom
-- Sessions with date, score, custom rating dimensions, notes, links
-- Media uploads (M4): attach photos / audio / video to a session; multiple files per type; SHA-256 dedup
-- Inline playback: audio + video play in the page; photos open in a PhotoSwipe lightbox carousel
-- Link thumbnails: each session link can carry a user-uploaded thumbnail image
-- Media Library at `/library` listing every uploaded file with type filter, orphans-only filter, and hard-delete
-- Friendly 404, 413, 500 pages
-- Skip-to-content link + label associations across forms
+- People with global tags; dashboard with search + sort (alphabetical,
+  last session, total sessions, average score, any custom rating dimension)
+- Avatar cropper — upload an image, circular crop client-side, replace
+  freely (the previous avatar becomes a Media Library orphan)
+- Sessions with date, custom rating dimensions, free-form notes, links
+- Media uploads per session: multiple photos, audio files, videos.
+  SHA-256 deduplication means the same file uploaded twice produces one
+  file on disk and one row in the database
+- Inline playback: HTML5 `<audio>` and `<video>` players for audio/video,
+  PhotoSwipe lightbox carousel for photos
+- Per-link thumbnails on session links
+- Media Library at `/library` with type filters, orphans-only filter,
+  and hard-delete (the only place that removes a file from disk)
+- Live config reload — edit `config.json`, click Reload on `/settings`,
+  no restart
+- **Auth + fake landing page:** the URL displays a Google-clone search
+  box to anyone unauthenticated; type the admin password to enter,
+  anything else 303-redirects to a real Google search of that term.
+  Sessions auto-expire after 30 minutes of inactivity, on server
+  restart, or when you click Logout
+- Friendly 404 / 413 / 500 error pages, skip-to-content link, all form
+  inputs labelled
 
-## Run the test suite
+## Quick start
 
 ```bash
-make test            # gate-enforced
-make test-cov        # same, plus a term-missing report
+git clone git@github.com:fzheng/flexlog.git
+cd flexlog
+make install                                  # creates .venv, installs flexlog
+make hash-password                            # prompt for admin password,
+                                              # prints SHA-512 hex line
+mkdir -p flexlog-data
+echo 'FLEXLOG_ADMIN_PASSWORD_SHA512=<paste-the-hex>' > flexlog-data/.env
+chmod 600 flexlog-data/.env
+make run                                      # http://127.0.0.1:5050/
 ```
 
-(Or, with the venv activated: `pytest`.) The configuration in
-`pyproject.toml` enforces a global 85% line-coverage floor. Tests must
-cross that threshold or the suite fails.
+Visiting `/` shows the fake landing page. Type the password to enter the
+real app. Override the data directory or port:
 
-## What's next
+```bash
+make run DATA_DIR=$HOME/flexlog-data PORT=5151
+```
 
-- M2 (✓ shipped): people + tags + dashboard
-- M3 (✓ shipped): sessions + ratings + notes + dashboard aggregates
-- M4 (✓ shipped): media + Media Library + hash dedup
-- M5 (✓ shipped): avatar cropper + sort + polish — **MVP complete**
-- Runtime config reload (✓ shipped): edit `config.json` while the app runs; click "Reload" on `/settings`
-- Auth + fake landing (✓ shipped): Google-clone landing page, SHA-512 password gate, 30-min idle session, restart-invalidates, /logout
+Requires Python 3.11+. If your default `python3` is older, pass
+`PYTHON=python3.13` (or whichever) to `make install`.
 
-Post-MVP backlog: encryption at rest, PDF export.
+## Privacy & data
 
-## QA mapping
+- **Single-user, local-only.** No accounts, no roles, no multi-user.
+  This is by design — the data model assumes one owner.
+- **All state in one directory.** `$FLEXLOG_DATA_DIR/` holds the SQLite
+  database, the secret key, the admin password hash, all uploaded media
+  files, and `config.json`. Nothing else.
+- **Backup is copy.** Stop the app, `tar czf backup.tar.gz $FLEXLOG_DATA_DIR/`,
+  done. To restore, drop the directory on another machine, point
+  `FLEXLOG_DATA_DIR` at it, run `flexlog`.
+- **The fake landing page hides the URL,** but doesn't harden the app
+  for hostile public exposure. There's no rate limiting, no lockout, no
+  abuse protection beyond a strong SHA-512 password. If you put this on
+  the open internet, put a reverse proxy with rate limiting in front,
+  use a long random password, and consider whether single-user
+  local-first is the right tool for your situation at all.
 
-PRD §12 items 1–24 map to tests in `tests/integration/test_qa_checklist.py`,
-one test per item with a `QA-N` docstring per `docs/superpowers/specs/2026-05-07-flexlog-design.md` §14.
+## For developers
+
+```bash
+make test       # full pytest suite, 85% coverage gate enforced
+make test-cov   # same, plus term-missing coverage report
+make smoke      # boot + dashboard fetch against a temp dir, then teardown
+make help       # all targets
+```
+
+The codebase grew via five development milestones (foundation → people
+→ sessions → media → polish) plus post-MVP features (runtime config
+reload, auth + fake landing). The product spec is
+`docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`. Per-feature
+specs and plans live under `docs/superpowers/` locally — that directory
+is gitignored, so it stays out of the public repo.
+
+`FLEXLOG_DEBUG=1` enables Flask debug mode (auto-reload on file changes).
+Don't enable it when serving real data.
