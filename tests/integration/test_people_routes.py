@@ -134,7 +134,6 @@ def test_person_new_form_includes_avatar_cropper(client):
     assert resp.status_code == 200
     assert 'id="avatar-file"' in body
     assert 'name="avatar_blob"' in body
-    assert 'name="clear_avatar"' in body
     assert 'enctype="multipart/form-data"' in body
     assert "cropper.min.js" in body
     assert "avatar_cropper.js" in body

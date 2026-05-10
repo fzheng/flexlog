@@ -2,10 +2,11 @@
 
 {% block title %}{{ "edit_person" | ui }}: {{ person.alias }} — {{ labels.app_name }}{% endblock %}
 
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='vendor/cropperjs/cropper.min.css') }}">{% endblock %}
+
 {% block content %}
 <section class="form-section">
   <h2>{{ "edit_person" | ui }}: {{ person.alias }}</h2>
-  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/cropperjs/cropper.min.css') }}">
   <form method="post" action="{{ url_for('people.update', person_id=person.id) }}" class="person-form" enctype="multipart/form-data">
     {{ form.csrf_token }}
     <div class="form-row">
