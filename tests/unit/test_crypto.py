@@ -85,3 +85,122 @@ def test_hkdf_subkey_respects_length():
     master = b"\x42" * 32
     assert len(hkdf_subkey(master, b"x", 16)) == 16
     assert len(hkdf_subkey(master, b"x", 48)) == 48
+
+
+# ---------------------------------------------------------- Chunked AEAD
+
+from pathlib import Path
+
+from flexlog.crypto import (
+    FILE_HEADER_SIZE,
+    DEFAULT_CHUNK_SIZE,
+    encrypt_file_to_path,
+    decrypt_file_full,
+    decrypt_file_range,
+    parse_header,
+)
+
+
+def _master() -> bytes:
+    return b"\x42" * 32
+
+
+def test_encrypt_decrypt_zero_byte_file(tmp_path):
+    src = tmp_path / "in.bin"; src.write_bytes(b"")
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="a" * 64)
+    pt = decrypt_file_full(dst, _master(), file_sha="a" * 64)
+    assert pt == b""
+
+
+def test_encrypt_decrypt_one_byte_file(tmp_path):
+    src = tmp_path / "in.bin"; src.write_bytes(b"X")
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="b" * 64)
+    pt = decrypt_file_full(dst, _master(), file_sha="b" * 64)
+    assert pt == b"X"
+
+
+def test_encrypt_decrypt_exactly_one_chunk(tmp_path):
+    src = tmp_path / "in.bin"
+    src.write_bytes(b"A" * DEFAULT_CHUNK_SIZE)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="c" * 64)
+    pt = decrypt_file_full(dst, _master(), file_sha="c" * 64)
+    assert pt == b"A" * DEFAULT_CHUNK_SIZE
+
+
+def test_encrypt_decrypt_one_and_half_chunks(tmp_path):
+    src = tmp_path / "in.bin"
+    src.write_bytes(b"A" * (DEFAULT_CHUNK_SIZE + DEFAULT_CHUNK_SIZE // 2))
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="d" * 64)
+    pt = decrypt_file_full(dst, _master(), file_sha="d" * 64)
+    assert pt == b"A" * (DEFAULT_CHUNK_SIZE + DEFAULT_CHUNK_SIZE // 2)
+
+
+def test_header_well_formed(tmp_path):
+    src = tmp_path / "in.bin"; src.write_bytes(b"hello world")
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="e" * 64)
+    with dst.open("rb") as f:
+        h = parse_header(f.read(FILE_HEADER_SIZE))
+    assert h.magic == b"FLE0"
+    assert h.version == 1
+    assert h.chunk_size == DEFAULT_CHUNK_SIZE
+    assert h.plaintext_size == len(b"hello world")
+
+
+def test_corrupted_chunk_raises(tmp_path):
+    src = tmp_path / "in.bin"
+    src.write_bytes(b"some content here" * 100)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="f" * 64)
+    # Flip a byte well past the header
+    blob = dst.read_bytes()
+    pos = FILE_HEADER_SIZE + 5
+    blob = blob[:pos] + bytes([blob[pos] ^ 0x01]) + blob[pos+1:]
+    dst.write_bytes(blob)
+    with pytest.raises(InvalidPassword):
+        decrypt_file_full(dst, _master(), file_sha="f" * 64)
+
+
+def test_range_within_first_chunk(tmp_path):
+    pt_full = b"a" * 200 + b"b" * 200 + b"c" * 200
+    src = tmp_path / "in.bin"; src.write_bytes(pt_full)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="0" * 64)
+    out = decrypt_file_range(dst, _master(), file_sha="0" * 64, start=10, end=99)
+    assert out == pt_full[10:100]
+
+
+def test_range_spans_chunk_boundary(tmp_path):
+    # Pattern that lets us spot off-by-one
+    pt_full = bytes(range(256)) * 1024  # 256 KiB
+    src = tmp_path / "in.bin"; src.write_bytes(pt_full)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="1" * 64)
+    # Cross the 64 KB boundary exactly
+    cs = DEFAULT_CHUNK_SIZE
+    out = decrypt_file_range(dst, _master(), file_sha="1" * 64, start=cs - 5, end=cs + 4)
+    assert out == pt_full[cs - 5 : cs + 5]
+
+
+def test_range_to_eof(tmp_path):
+    pt_full = b"X" * 1000
+    src = tmp_path / "in.bin"; src.write_bytes(pt_full)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="2" * 64)
+    out = decrypt_file_range(dst, _master(), file_sha="2" * 64, start=500, end=999)
+    assert out == pt_full[500:1000]
+
+
+def test_range_zero_to_eof_equals_full_decrypt(tmp_path):
+    pt_full = (bytes(range(256)) * 300)[:DEFAULT_CHUNK_SIZE + 1234]
+    src = tmp_path / "in.bin"; src.write_bytes(pt_full)
+    dst = tmp_path / "out.enc"
+    encrypt_file_to_path(src, dst, _master(), file_sha="3" * 64)
+    full = decrypt_file_full(dst, _master(), file_sha="3" * 64)
+    ranged = decrypt_file_range(dst, _master(), file_sha="3" * 64, start=0, end=len(pt_full) - 1)
+    assert full == pt_full
+    assert ranged == pt_full
