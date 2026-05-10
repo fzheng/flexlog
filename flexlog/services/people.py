@@ -232,7 +232,7 @@ def _sort_rows(
     """
     alias_key = lambda r: r.person.alias.casefold()  # noqa: E731
 
-    if sort == "alias" or sort not in _VALID_SCALAR_SORTS and not sort.startswith("custom:"):
+    if sort == "alias" or (sort not in _VALID_SCALAR_SORTS and not sort.startswith("custom:")):
         return sorted(rows, key=alias_key)
 
     if sort == "last_date":

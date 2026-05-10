@@ -238,3 +238,26 @@ def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="", sort="avg_score")
     assert [r.person.alias for r in rows] == ["A", "B", "C"]
+
+
+def test_list_dashboard_rows_sort_custom_dim_nulls_last(db_session):
+    """Custom-dim sort averages a single rating dimension across each person's
+    sessions; people without that dim sort last."""
+    from flexlog.services.people import create_person, list_dashboard_rows
+    from flexlog.services.sessions import create_session
+    a = create_person(db_session, alias="A", tag_input="")
+    b = create_person(db_session, alias="B", tag_input="")
+    c = create_person(db_session, alias="C", tag_input="")  # no sessions at all
+    db_session.commit()
+    # A: avg of dim_x = (5 + 3) / 2 = 4.0
+    create_session(db_session, person_id=a.id, session_date="2026-01-01", overall_score=3,
+                   notes="", custom_ratings={"dim_x": 5}, links=[])
+    create_session(db_session, person_id=a.id, session_date="2026-01-02", overall_score=3,
+                   notes="", custom_ratings={"dim_x": 3}, links=[])
+    # B: avg of dim_x = 5.0 (one session)
+    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=3,
+                   notes="", custom_ratings={"dim_x": 5}, links=[])
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="custom:dim_x")
+    # B (5.0) > A (4.0) > C (no dim_x — sorts last)
+    assert [r.person.alias for r in rows] == ["B", "A", "C"]

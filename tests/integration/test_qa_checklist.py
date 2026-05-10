@@ -128,12 +128,17 @@ def test_qa_09_multiple_media(client, db_session):
 def test_qa_10_inline_media_playback(client, db_session):
     """QA-10: audio and video play inline (HTML5 players).
 
-    Verified by detail-page rendering: <audio> and <video> tags are emitted
-    when media is attached. The actual codec playback is browser-side.
+    The detail-page template includes media_audio + media_video partials
+    that emit <audio>/<video> tags. Browser codec playback is out of scope.
     """
-    # Smoke check: detail.html includes _partials/media_audio.html and
-    # _partials/media_video.html. Tested by test_session_detail.py.
-    pytest.importorskip("tests.integration.test_session_detail")
+    import pathlib
+    audio = pathlib.Path("flexlog/templates/_partials/media_audio.html").read_text()
+    video = pathlib.Path("flexlog/templates/_partials/media_video.html").read_text()
+    assert "<audio" in audio
+    assert "<video" in video
+    detail = pathlib.Path("flexlog/templates/sessions/detail.html").read_text()
+    assert "media_audio.html" in detail
+    assert "media_video.html" in detail
 
 
 def test_qa_11_photoswipe(client, db_session):
@@ -234,8 +239,11 @@ def test_qa_18_data_dir_portable(client, db_session):
 
 
 def test_qa_19_path_traversal_safe(client):
-    """QA-19: path traversal attempts in upload filenames fail safely."""
-    pytest.importorskip("tests.integration.test_media_upload")
+    """QA-19: path traversal attempts in upload filenames fail safely.
+
+    Sandboxing is enforced by paths.resolve_file_key + the media_bp route;
+    test_media_serving.py covers the full upload + serving path.
+    """
     resp = client.get("/media/..%2Fetc%2Fpasswd")
     assert resp.status_code in (400, 403, 404)
 
