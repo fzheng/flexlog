@@ -13,3 +13,6 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# auth: secrets live in $FLEXLOG_DATA_DIR/.env, but defend against accidental repo .env
+.env
