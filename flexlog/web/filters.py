@@ -102,6 +102,12 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "search_button": "Search",
     "feeling_lucky": "I'm Feeling Lucky",
     "landing_brand_subtitle": "",
+    # Change password (settings page)
+    "change_password_heading": "Change password",
+    "current_password_label": "Current password",
+    "new_password_label": "New password",
+    "new_password_confirm_label": "Confirm new password",
+    "change_password_submit": "Change password",
     # Setup + recovery
     "set_password_heading": "Set Admin Password",
     "set_password_help": "Choose a strong password — at least 8 characters. You'll use this to log in and to unlock the encrypted database.",
