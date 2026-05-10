@@ -5,13 +5,12 @@ DATA_DIR     ?= $(CURDIR)/flexlog-data
 PORT         ?= 5050
 INSTALL_MARK := $(VENV)/.installed
 
-.PHONY: help install run test test-cov smoke clean hash-password
+.PHONY: help install run test test-cov smoke clean
 
 help:
 	@echo "flexlog — make targets"
 	@echo ""
 	@echo "  make install         install flexlog with dev extras into $(VENV)"
-	@echo "  make hash-password   prompt for admin password, print SHA-512 hex line"
 	@echo "  make run             run the app at http://127.0.0.1:$(PORT)/"
 	@echo "                       (data dir: $(DATA_DIR))"
 	@echo "  make test            run the test suite (enforces 85% coverage gate)"
@@ -32,9 +31,6 @@ $(INSTALL_MARK): pyproject.toml | $(VENV)
 	@touch $@
 
 install: $(INSTALL_MARK)
-
-hash-password: install
-	@$(BIN)/python -c 'import getpass, hashlib; pw = getpass.getpass("password: "); print("FLEXLOG_ADMIN_PASSWORD_SHA512=" + hashlib.sha512(pw.encode()).hexdigest())'
 
 run: install
 	@mkdir -p $(DATA_DIR)

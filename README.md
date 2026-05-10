@@ -92,16 +92,27 @@ without restarting the app.
 git clone git@github.com:fzheng/flexlog.git
 cd flexlog
 make install                                  # creates .venv, installs flexlog
-make hash-password                            # prompt for admin password,
-                                              # prints SHA-512 hex line
-mkdir -p flexlog-data
-echo 'FLEXLOG_ADMIN_PASSWORD_SHA512=<paste-the-hex>' > flexlog-data/.env
-chmod 600 flexlog-data/.env
 make run                                      # http://127.0.0.1:5050/
 ```
 
-Visiting `/` shows the fake landing page. Type the password to enter the
-real app. Override the data directory or port:
+On first run, visit `http://127.0.0.1:5050/` in a browser. flexlog detects
+that no password is configured yet and shows a **Set Admin Password** form
+(not the Google clone). Pick a password of at least 8 characters — it's
+used to log in AND to unlock the encrypted database. Once set, every
+visit shows the fake Google landing; type your password into the search
+box to log in. Type anything else and the page 303-redirects to a real
+Google search of that term.
+
+**There is no password recovery.** Forgotten password = lost data.
+flexlog never stores the plaintext password and the master encryption
+key is wrapped under a KEK derived from it. Choose carefully and keep a
+backup.
+
+To change your password later, visit `/settings` and use the **Change
+password** form. The change is constant-time (it re-wraps the master
+key with a new KEK) and doesn't touch any user data on disk.
+
+Override the data directory or port:
 
 ```bash
 make run DATA_DIR=$HOME/flexlog-data PORT=5151
@@ -114,15 +125,22 @@ Requires Python 3.11+. If your default `python3` is older, pass
 
 - **Single-user, local-only.** No accounts, no roles, no multi-user.
   This is by design — the data model assumes one owner.
-- **All state in one directory.** `$FLEXLOG_DATA_DIR/` holds the SQLite
-  database, the secret key, the admin password hash, all uploaded media
-  files, and `config.json`. Nothing else.
+- **All state in one directory.** `$FLEXLOG_DATA_DIR/` holds the
+  encrypted SQLCipher database, the Flask secret key (for CSRF +
+  session signing — not user data), `kdf_params.json` (Argon2id salt +
+  the wrapped master key — useless without your password), all
+  encrypted media files, and `config.json`. Nothing else.
+- **Encryption at rest.** Every byte of user data on disk is encrypted.
+  The SQLite DB uses SQLCipher (AES-256 + HMAC-SHA512 per page); media
+  files use chunked AES-GCM (64 KB chunks, deterministic per-file FEK).
+  The encryption keys live only in process memory after you log in;
+  server restart drops them and forces a re-login.
 - **Backup is copy.** Stop the app, `tar czf backup.tar.gz $FLEXLOG_DATA_DIR/`,
   done. To restore, drop the directory on another machine, point
   `FLEXLOG_DATA_DIR` at it, run `flexlog`.
 - **The fake landing page hides the URL,** but doesn't harden the app
   for hostile public exposure. There's no rate limiting, no lockout, no
-  abuse protection beyond a strong SHA-512 password. If you put this on
+  abuse protection beyond Argon2id KDF cost. If you put this on
   the open internet, put a reverse proxy with rate limiting in front,
   use a long random password, and consider whether single-user
   local-first is the right tool for your situation at all.
