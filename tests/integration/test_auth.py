@@ -7,13 +7,21 @@ import pytest
 
 
 def test_anonymous_get_root_renders_fake_landing(client):
-    """GET / by an anonymous user shows the fake search page, NOT the dashboard."""
+    """GET / by an anonymous user shows the fake Google homepage, NOT the dashboard."""
     resp = client.get("/")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    assert "landing-brand" in body
-    # Must not leak any app-specific noun
-    for noun in ("Guests", "Add Interview", "Settings", "Media Library"):
+    # Page replicates google.com — title, logo wordmark, and search button all present
+    assert "<title>Google</title>" in body
+    assert 'class="g-logo"' in body
+    assert "Google Search" in body
+    assert "I&#39;m Feeling Lucky" in body or "I'm Feeling Lucky" in body
+    # Must not leak any flexlog-specific label or route path. (The
+    # legitimate Google footer link "Settings" is allowed — it points at
+    # google.com/preferences, which is part of the disguise; we check
+    # routes instead to detect leaks.)
+    for noun in ("New Guest", "Add Interview", "Media Library", "Edit Person",
+                 "flexlog", "/dashboard", "/people/", "/sessions/", "/library"):
         assert noun not in body, f"fake page leaked {noun!r}"
 
 
@@ -28,7 +36,7 @@ def test_wrong_password_post_redirects_to_google(client):
 def test_empty_q_post_re_renders_landing(client):
     resp = client.post("/", data={"q": ""})
     assert resp.status_code == 200
-    assert "landing-brand" in resp.get_data(as_text=True)
+    assert 'class="g-logo"' in resp.get_data(as_text=True)
 
 
 def test_correct_password_logs_in(client, admin_password):
