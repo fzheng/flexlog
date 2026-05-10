@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
@@ -12,10 +14,14 @@ from flexlog.db.models import (
 )
 
 
+def _key() -> str:
+    return os.urandom(32).hex()
+
+
 @pytest.fixture
 def session(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     Session = make_session_factory(engine)
     with Session() as s:
@@ -35,7 +41,7 @@ def _setup_session(s, link_thumbnail_id=None):
 
 def test_create_all_registers_media_tables(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     names = set(inspect(engine).get_table_names())
     assert {"media_file", "session_media"} <= names

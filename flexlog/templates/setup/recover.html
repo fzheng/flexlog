@@ -1,0 +1,17 @@
+{% extends "_base.html" %}
+{% block title %}Data Found — {{ labels.app_name }}{% endblock %}
+{% block content %}
+<section class="form-section">
+  <h2>{{ "recover_heading" | ui }}</h2>
+  <p class="form-help">{{ "recover_body_intro" | ui }}</p>
+  <pre style="background:#fbf9f5;padding:1rem;border:1px solid #e5e5e5;font-family:var(--mono);font-size:0.85rem">{{ data_dir }}</pre>
+  <p class="form-help">{{ "recover_body_steps" | ui }}</p>
+  <ol class="form-help">
+    <li>Stop the running app (Ctrl-C).</li>
+    <li>Copy that entire directory to a safe place as a backup.</li>
+    <li>Rename the directory aside, e.g. <code>mv flexlog-data flexlog-data.legacy</code>.</li>
+    <li>Restart the app and visit <code>/</code> — you'll get the set-password page.</li>
+  </ol>
+  <p class="form-error">{{ "recover_warning" | ui }}</p>
+</section>
+{% endblock %}

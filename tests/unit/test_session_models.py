@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
@@ -6,10 +8,14 @@ from flexlog.db import Base, make_engine, make_session_factory
 from flexlog.db.models import Person, Session as SessionModel, SessionLink
 
 
+def _key() -> str:
+    return os.urandom(32).hex()
+
+
 @pytest.fixture
 def session(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     Session = make_session_factory(engine)
     with Session() as s:
@@ -25,7 +31,7 @@ def _person(session, alias="Alice"):
 
 def test_create_all_registers_session_tables(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     names = set(inspect(engine).get_table_names())
     assert {"session", "session_link"} <= names

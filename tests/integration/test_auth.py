@@ -88,15 +88,19 @@ def test_logout_clears_session(authed_client):
     assert resp2.headers["Location"].endswith("/")
 
 
-def test_missing_admin_hash_fails_startup(monkeypatch, tmp_path):
-    """create_app() must refuse to start without FLEXLOG_ADMIN_PASSWORD_SHA512."""
+def test_missing_kdf_params_redirects_to_setup(monkeypatch, tmp_path):
+    """When no kdf_params.json + no DB, GET / 303s to the set-password page."""
     from flexlog.config_loader import DEFAULT_CONFIG_JSON
 
     monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
     monkeypatch.delenv("FLEXLOG_ADMIN_PASSWORD_SHA512", raising=False)
     (tmp_path / "config.json").write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
-    # No .env written.
 
     from flexlog.app import create_app
-    with pytest.raises(RuntimeError, match="FLEXLOG_ADMIN_PASSWORD_SHA512"):
-        create_app()
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["WTF_CSRF_ENABLED"] = False
+    client = app.test_client()
+    resp = client.get("/")
+    assert resp.status_code == 303
+    assert "/setup/set-password" in resp.headers["Location"]

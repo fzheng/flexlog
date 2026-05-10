@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -9,10 +10,14 @@ from flexlog.db import Base, make_engine, make_session_factory
 from flexlog.db.models import Person, PersonTag, Tag
 
 
+def _key() -> str:
+    return os.urandom(32).hex()
+
+
 @pytest.fixture
 def session(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     Session = make_session_factory(engine)
     with Session() as s:
@@ -21,7 +26,7 @@ def session(tmp_path):
 
 def test_create_all_registers_three_tables(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     inspector = inspect(engine)
     names = set(inspector.get_table_names())
@@ -30,7 +35,7 @@ def test_create_all_registers_three_tables(tmp_path):
 
 def test_create_all_is_idempotent(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Base.metadata.create_all(engine)
     Base.metadata.create_all(engine)  # second call must not raise
     inspector = inspect(engine)

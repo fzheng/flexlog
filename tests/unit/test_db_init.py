@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -6,9 +7,13 @@ from sqlalchemy import inspect, text
 from flexlog.db import Base, make_engine, make_session_factory
 
 
+def _key() -> str:
+    return os.urandom(32).hex()
+
+
 def test_make_engine_creates_sqlite_file_lazily(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     # Engine creation does NOT touch the filesystem until a connection opens.
     # But once we connect, the file appears.
     with engine.connect() as conn:
@@ -19,7 +24,7 @@ def test_make_engine_creates_sqlite_file_lazily(tmp_path):
 def test_make_engine_enables_foreign_keys(tmp_path):
     """SQLite ignores ON DELETE CASCADE unless PRAGMA foreign_keys=ON."""
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     with engine.connect() as conn:
         result = conn.execute(text("PRAGMA foreign_keys")).scalar()
         assert result == 1, "foreign_keys pragma must be ON"
@@ -27,7 +32,7 @@ def test_make_engine_enables_foreign_keys(tmp_path):
 
 def test_make_session_factory_yields_working_sessions(tmp_path):
     db_path = tmp_path / "encounters.db"
-    engine = make_engine(db_path)
+    engine = make_engine(db_path, _key())
     Session = make_session_factory(engine)
     with Session() as session:
         # Sessions can execute trivial queries

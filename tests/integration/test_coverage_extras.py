@@ -179,19 +179,19 @@ def test_library_orphans_only_flag_parsing(authed_client):
 
 # ---------------------------------------------------------- app.py startup
 
-def test_create_app_rejects_invalid_admin_hash(monkeypatch, tmp_path):
-    """A 128-char string that's NOT lowercase hex must fail validation
-    with a clear error, not let the app boot. Exercises the
-    `validate_admin_hash` ValueError → RuntimeError wrap in app.py."""
+def test_create_app_no_longer_requires_admin_hash(monkeypatch, tmp_path):
+    """As of v0.2.0, FLEXLOG_ADMIN_PASSWORD_SHA512 is gone; create_app()
+    no longer reads it. App boots fine without it; bootstrap state machine
+    handles the no-password-yet case via the setup flow."""
     from flexlog.config_loader import DEFAULT_CONFIG_JSON
 
     monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("FLEXLOG_ADMIN_PASSWORD_SHA512", "Z" * 128)  # 128 chars but not hex
+    monkeypatch.setenv("FLEXLOG_ADMIN_PASSWORD_SHA512", "Z" * 128)  # ignored now
     (tmp_path / "config.json").write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
 
     from flexlog.app import create_app
-    with pytest.raises(RuntimeError, match="invalid"):
-        create_app()
+    app = create_app()  # must NOT raise
+    assert "ADMIN_PASSWORD_HASH" not in app.config
 
 
 # ---------------------------------------------------------- Session links cleanup

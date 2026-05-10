@@ -102,6 +102,16 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "search_button": "Search",
     "feeling_lucky": "I'm Feeling Lucky",
     "landing_brand_subtitle": "",
+    # Setup + recovery
+    "set_password_heading": "Set Admin Password",
+    "set_password_help": "Choose a strong password — at least 8 characters. You'll use this to log in and to unlock the encrypted database.",
+    "password_label": "Password",
+    "password_confirm_label": "Confirm password",
+    "set_password_submit": "Set Password",
+    "recover_heading": "Existing Data Found",
+    "recover_body_intro": "This data directory has files but no encrypted database. flexlog v0.2.0+ requires encryption at rest. To proceed:",
+    "recover_body_steps": "Steps to recover:",
+    "recover_warning": "Do not delete the directory until you have a verified backup.",
 }
 
 

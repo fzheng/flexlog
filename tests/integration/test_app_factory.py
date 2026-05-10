@@ -104,17 +104,18 @@ def test_create_app_writes_secret_key_on_first_run(tmp_data_dir):
     assert mode == 0o600
 
 
-def test_create_app_creates_database_with_tables(tmp_data_dir):
+def test_create_app_creates_database_with_tables(app):
+    """After login (mimicked by `app` fixture) the engine is attached and
+    schema is present."""
     from sqlalchemy import inspect
 
-    app = create_app()
     engine = app.config["FLEXLOG_DB_ENGINE"]
     names = set(inspect(engine).get_table_names())
     assert {"person", "tag", "person_tag"} <= names
 
 
-def test_create_app_attaches_session_factory(tmp_data_dir):
-    app = create_app()
+def test_create_app_attaches_session_factory(app):
+    """After login (mimicked by `app` fixture) the session factory is attached."""
     factory = app.config["FLEXLOG_DB_SESSION_FACTORY"]
     assert callable(factory)
     with factory() as s:
