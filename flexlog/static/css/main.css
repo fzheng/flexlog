@@ -10,6 +10,11 @@
 
 * { box-sizing: border-box; }
 
+/* Force the [hidden] attribute to win over component display rules
+   (e.g. .btn { display: inline-block }). Without this, buttons / inputs
+   with the HTML `hidden` attribute still render. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   color: var(--fg);

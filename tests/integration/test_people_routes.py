@@ -137,3 +137,16 @@ def test_person_new_form_includes_avatar_cropper(client):
     assert 'enctype="multipart/form-data"' in body
     assert "cropper.min.js" in body
     assert "avatar_cropper.js" in body
+
+
+def test_avatar_blob_input_is_hidden(client):
+    """Regression: avatar_blob is a HiddenField, not a StringField. Browsers
+    must not render an empty visible text box below the cropper area."""
+    import re
+    resp = client.get("/people/new")
+    body = resp.get_data(as_text=True)
+    m = re.search(r'<input[^>]*\bname="avatar_blob"[^>]*>', body)
+    assert m, "avatar_blob input not found"
+    assert 'type="hidden"' in m.group(0), (
+        f"avatar_blob input should be type=hidden, got: {m.group(0)}"
+    )

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, IntegerField, StringField, TextAreaField
+from wtforms import BooleanField, HiddenField, IntegerField, StringField, TextAreaField
 from wtforms.validators import DataRequired, Length, NumberRange, Optional, Regexp, ValidationError
 
 ALIAS_MAX = 200
@@ -38,7 +38,7 @@ class PersonForm(FlaskForm):
     # avatar_blob: a "data:image/jpeg;base64,..." dataURL produced by Cropper.js.
     # Length cap is 12 MiB of base64 (~9 MiB raw) — way larger than any realistic
     # avatar at 512x512 JPEG quality 0.92, but small enough to reject obvious abuse.
-    avatar_blob = StringField(
+    avatar_blob = HiddenField(
         "avatar_blob",
         validators=[Optional(), Length(max=12 * 1024 * 1024)],
     )

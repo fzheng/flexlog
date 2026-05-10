@@ -25,3 +25,15 @@ def test_visually_hidden_class_defined(app):
         css = f.read()
     assert ".visually-hidden" in css
     assert ".skip-link" in css
+
+
+def test_hidden_attribute_overrides_component_display(app):
+    """Regression: the [hidden] attribute must win over .btn { display:
+    inline-block } and similar component rules. Without this, buttons with
+    the HTML `hidden` attribute remain visible (the avatar Crop & save /
+    Reset crop buttons regressed this way during M5 browser smoke)."""
+    css_path = app.static_folder + "/css/main.css"
+    with open(css_path) as f:
+        css = f.read()
+    assert "[hidden]" in css
+    assert "display: none !important" in css
