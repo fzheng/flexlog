@@ -10,11 +10,18 @@ import pytest
 
 from flexlog.config_loader import DEFAULT_CONFIG_JSON
 from flexlog.crypto import (
-    ARGON2_DEFAULT_PARAMS, aes_gcm_wrap, argon2id_kek, hkdf_subkey,
+    ARGON2_DEFAULT_PARAMS, Argon2Params, aes_gcm_wrap, argon2id_kek, hkdf_subkey,
 )
 from flexlog.kdf_params import KdfParams, write_kdf_params
 
 _FIXTURE_PASSWORD = "hunter2-test"  # tests use this; never used in production
+
+# Argon2id with production params (~500ms each) makes the fixture-heavy
+# suite take ~45s. For tests we run hundreds of fixtures per session and
+# the cryptographic correctness doesn't depend on the cost parameters —
+# only KDF correctness does. Use a near-minimal cost so the suite stays
+# under 10s. The Argon2 RFC requires time_cost >= 1, memory_cost >= 8.
+_FIXTURE_ARGON2_PARAMS = Argon2Params(time_cost=1, memory_kib=8, parallelism=1)
 
 
 @pytest.fixture
@@ -41,16 +48,16 @@ def _bootstrap_encrypted_dir(tmp_path: Path) -> bytes:
     kek_salt = os.urandom(16)
     kek_nonce = os.urandom(12)
     master_key = os.urandom(32)
-    kek = argon2id_kek(_FIXTURE_PASSWORD, kek_salt, ARGON2_DEFAULT_PARAMS)
+    kek = argon2id_kek(_FIXTURE_PASSWORD, kek_salt, _FIXTURE_ARGON2_PARAMS)
     wrapped = aes_gcm_wrap(kek, kek_nonce, master_key)
     write_kdf_params(
         tmp_path / "kdf_params.json",
         KdfParams(
             version=1, kek_salt=kek_salt, kek_nonce=kek_nonce,
             wrapped_master_key=wrapped,
-            argon2_time=ARGON2_DEFAULT_PARAMS.time_cost,
-            argon2_memory_kib=ARGON2_DEFAULT_PARAMS.memory_kib,
-            argon2_parallelism=ARGON2_DEFAULT_PARAMS.parallelism,
+            argon2_time=_FIXTURE_ARGON2_PARAMS.time_cost,
+            argon2_memory_kib=_FIXTURE_ARGON2_PARAMS.memory_kib,
+            argon2_parallelism=_FIXTURE_ARGON2_PARAMS.parallelism,
         ),
     )
 
