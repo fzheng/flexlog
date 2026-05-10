@@ -39,10 +39,17 @@ def test_upload_creates_media_file_row(app, db_session, tmp_data_dir):
         assert mf.mime_type == "image/jpeg"
         assert mf.file_size_bytes == len(JPEG_BYTES)
         assert mf.original_filename == "vacation.jpg"
-        # File exists at the resolved key
+        # File exists at the resolved key. As of v0.2.0 media is encrypted at
+        # rest with chunked AES-GCM — the on-disk bytes are the FLE0 header +
+        # ciphertext, NOT the plaintext. Round-trip the plaintext via decrypt
+        # to assert correctness.
         target = paths.resolve_file_key(mf.file_key)
         assert target.exists()
-        assert target.read_bytes() == JPEG_BYTES
+        from flexlog.crypto import decrypt_file_full
+        from flask import current_app
+        master_key = current_app.config["MASTER_KEY"]
+        file_sha = mf.file_key.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        assert decrypt_file_full(target, master_key, file_sha) == JPEG_BYTES
 
 
 def test_upload_dedup_by_sha256(app, db_session):
