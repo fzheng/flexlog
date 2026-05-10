@@ -1,6 +1,6 @@
 """Avatar upload end-to-end: dataURL → MediaFile row → person.avatar_media_id set.
 
-Covers M5 avatar create / replace / clear flows. Replacement leaves the
+Covers avatar create / replace / clear flows. Replacement leaves the
 previous MediaFile on disk (it becomes a Media Library orphan).
 """
 from __future__ import annotations

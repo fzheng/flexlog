@@ -1,10 +1,12 @@
 """SQLAlchemy ORM models for flexlog.
 
-M2 declares Person, Tag, PersonTag (the people side of the spec's data
-model — §7). Sessions, links, media, and avatars come in M3/M4. The
-`avatar_media_id` column is declared here as a plain nullable string so
-M4 can layer the foreign-key constraint onto media_file without a schema
-migration.
+The full data model (PRD §7): Person + Tag + PersonTag (people side);
+Session + SessionLink (per-person sessions with optional links); MediaFile
++ SessionMedia (uploaded photos / audio / video, with content-addressed
+storage and dedup). Person.avatar_media_id and SessionLink.thumbnail_media_id
+both reference MediaFile via ON DELETE SET NULL — hard-deleting a media
+file from the Library leaves the references gracefully nulled rather than
+cascading the parent rows.
 """
 
 from __future__ import annotations
@@ -28,8 +30,9 @@ class Person(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     alias: Mapped[str] = mapped_column(Text, nullable=False)
-    # FK to media_file — layered in M4. ON DELETE SET NULL so hard-deleting a
-    # MediaFile from the library clears the avatar reference gracefully.
+    # FK to media_file with ON DELETE SET NULL — hard-deleting a MediaFile
+    # from the Media Library clears the reference gracefully rather than
+    # cascading the row that holds it.
     avatar_media_id: Mapped[str | None] = mapped_column(
         String,
         ForeignKey("media_file.id", ondelete="SET NULL"),
@@ -98,7 +101,8 @@ class PersonTag(Base):
 
 
 # Lookup index on slug is already created by the unique constraint above.
-# No further indexes in M2; M3 adds session(person_id, session_date).
+# Session and media tables declare their own indexes inline (search by
+# person_id, by session_date, by media_file_id, etc.).
 
 
 class Session(Base):
@@ -144,8 +148,8 @@ class SessionLink(Base):
     )
     url: Mapped[str] = mapped_column(Text, nullable=False)
     label: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # FK to media_file — layered in M4. ON DELETE SET NULL so hard-deleting a
-    # MediaFile from the library clears the link thumbnail reference gracefully.
+    # FK to media_file with ON DELETE SET NULL — hard-deleting a MediaFile
+    # from the Media Library clears the link thumbnail reference gracefully.
     thumbnail_media_id: Mapped[str | None] = mapped_column(
         String,
         ForeignKey("media_file.id", ondelete="SET NULL"),

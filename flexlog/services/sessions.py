@@ -4,7 +4,7 @@ Sessions belong to a person and carry an overall_score (required, 0..5),
 optional notes, optional custom-rating values (stored as a JSON object on
 the row so the schema doesn't churn when the user adds/removes rating
 dimensions in config.json), and zero or more SessionLinks (URL + optional
-label; thumbnails defer to M4).
+label; each link can also carry an optional thumbnail MediaFile reference).
 
 split_custom_ratings() is the read-side helper: given the stored JSON and
 the currently enabled rating IDs from config, it returns (current_pairs,

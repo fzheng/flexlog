@@ -105,7 +105,7 @@ def test_can_insert_session_link(session):
     got = session.get(SessionLink, "l1")
     assert got.url == "https://example.com"
     assert got.label == "Reference"
-    assert got.thumbnail_media_id is None  # M4 layers the FK
+    assert got.thumbnail_media_id is None  # FK to media_file, defaults NULL
 
 
 def test_session_link_url_required(session):

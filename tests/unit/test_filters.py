@@ -49,7 +49,8 @@ def test_ui_filter_unknown_key_returns_key_itself():
 
 
 def test_builtin_ui_defaults_includes_minimum_keys():
-    # M1 expects at least these keys to render the placeholder dashboard
+    # The dashboard's "New Person" button + empty-state copy are the
+    # minimum any flexlog UI render needs to be coherent.
     for required in ("new_person", "empty_dashboard"):
         assert required in BUILTIN_UI_DEFAULTS
 

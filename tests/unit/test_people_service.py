@@ -240,6 +240,136 @@ def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
     assert [r.person.alias for r in rows] == ["A", "B", "C"]
 
 
+def test_apply_tags_dedups_same_tag_in_input(db_session):
+    """Same tag listed twice in tag_input (different casing) must collapse
+    to one PersonTag — exercises the `if sl in existing_slugs: continue`
+    branch in _apply_tags."""
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    # Add Engineer once
+    update_person(db_session, p.id, alias="Alice", tag_input="Engineer")
+    db_session.commit()
+    # Now apply tag_input that already includes Engineer (it should not
+    # try to re-create the join; should hit the `continue` branch).
+    update_person(db_session, p.id, alias="Alice", tag_input="Engineer, Engineer, ENGINEER")
+    db_session.commit()
+    refreshed = get_person(db_session, p.id)
+    slugs = [t.slug for t in refreshed.tags]
+    assert slugs == ["engineer"]
+
+
+def test_list_dashboard_rows_unknown_sort_falls_back_to_alias(db_session):
+    """sort='garbage' should fall back to alphabetical alias sort, not
+    crash. Exercises the trailing `return sorted(rows, key=alias_key)` in
+    _sort_rows that runs when no branch matches."""
+    from flexlog.services.people import list_dashboard_rows
+    create_person(db_session, alias="Charlie", tag_input="")
+    create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="not-a-real-sort-key")
+    assert [r.person.alias for r in rows] == ["Alice", "Charlie"]
+
+
+def test_custom_dim_averages_skips_empty_json(db_session):
+    """Sessions with custom_ratings_json='' or NULL must be ignored by the
+    custom-dim averager — exercises the `if not raw: continue` branch."""
+    from sqlalchemy import text
+    from flexlog.services.people import _custom_dim_averages
+    from flexlog.services.sessions import create_session
+    p = create_person(db_session, alias="A", tag_input="")
+    db_session.commit()
+    s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
+                       overall_score=3, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    # _serialize_ratings({}) returns "{}", which is truthy. Force the column
+    # to literal NULL via raw SQL to exercise the `if not raw: continue` path.
+    db_session.execute(
+        text("UPDATE session SET custom_ratings_json = NULL WHERE id = :sid"),
+        {"sid": s.id},
+    )
+    db_session.commit()
+    out = _custom_dim_averages(db_session, "any_dim")
+    assert out == {}
+
+
+def test_custom_dim_averages_skips_invalid_json(db_session):
+    """If custom_ratings_json is malformed, the averager must skip the row,
+    not crash. Exercises the json.loads except-branch."""
+    from sqlalchemy import text
+    from flexlog.services.people import _custom_dim_averages
+    from flexlog.services.sessions import create_session
+    p = create_person(db_session, alias="A", tag_input="")
+    db_session.commit()
+    s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
+                       overall_score=3, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    # Smash the JSON column to broken bytes via raw SQL so we don't have
+    # to bypass services/sessions validation
+    db_session.execute(
+        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        {"raw": "{{not json", "sid": s.id},
+    )
+    db_session.commit()
+    out = _custom_dim_averages(db_session, "any_dim")
+    assert out == {}
+
+
+def test_custom_dim_averages_skips_non_dict_json(db_session):
+    """If custom_ratings_json parses to a list / number / string, the
+    averager must skip the row. Exercises the isinstance(data, dict) branch."""
+    from sqlalchemy import text
+    from flexlog.services.people import _custom_dim_averages
+    from flexlog.services.sessions import create_session
+    p = create_person(db_session, alias="A", tag_input="")
+    db_session.commit()
+    s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
+                       overall_score=3, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    db_session.execute(
+        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        {"raw": "[1, 2, 3]", "sid": s.id},
+    )
+    db_session.commit()
+    out = _custom_dim_averages(db_session, "any_dim")
+    assert out == {}
+
+
+def test_custom_dim_averages_skips_missing_dim(db_session):
+    """If a session's custom_ratings dict is valid JSON but doesn't carry
+    the requested dim_id, that session contributes nothing to the average."""
+    from flexlog.services.people import _custom_dim_averages
+    from flexlog.services.sessions import create_session
+    p = create_person(db_session, alias="A", tag_input="")
+    db_session.commit()
+    create_session(db_session, person_id=p.id, session_date="2026-01-01",
+                   overall_score=3, notes="",
+                   custom_ratings={"other_dim": 4}, links=[])
+    db_session.commit()
+    out = _custom_dim_averages(db_session, "missing_dim")
+    assert out == {}
+
+
+def test_custom_dim_averages_skips_non_numeric_value(db_session):
+    """If a dim's value is non-numeric (would fail float(v)), the row is
+    skipped, not the whole call. Exercises the float() except-branch."""
+    from sqlalchemy import text
+    from flexlog.services.people import _custom_dim_averages
+    from flexlog.services.sessions import create_session
+    p = create_person(db_session, alias="A", tag_input="")
+    db_session.commit()
+    s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
+                       overall_score=3, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    # Inject a string value directly into the JSON column
+    db_session.execute(
+        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        {"raw": '{"my_dim": "not-a-number"}', "sid": s.id},
+    )
+    db_session.commit()
+    out = _custom_dim_averages(db_session, "my_dim")
+    assert out == {}
+
+
 def test_list_dashboard_rows_sort_custom_dim_nulls_last(db_session):
     """Custom-dim sort averages a single rating dimension across each person's
     sessions; people without that dim sort last."""

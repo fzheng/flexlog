@@ -228,7 +228,7 @@ def _sort_rows(
     session: Session, rows: list[DashboardRow], sort: str
 ) -> list[DashboardRow]:
     """Sort the dashboard rows by the requested column. Pure Python sort —
-    fine at the bounded scale of the MVP (≤300 people).
+    fine at the single-user scale this app is built for (≤300 people).
     """
     alias_key = lambda r: r.person.alias.casefold()  # noqa: E731
 
@@ -267,7 +267,8 @@ def _neg_str(s: str | None) -> str:
 
 def _custom_dim_averages(session: Session, dim_id: str) -> dict[str, float]:
     """Return {person_id: avg_for_dim} across all sessions, ignoring sessions
-    that don't carry that dimension. Pure Python — bounded at MVP scale.
+    that don't carry that dimension. Pure Python — bounded at single-user
+    scale (≤300 people, a few thousand sessions total).
     """
     import json
     rows = session.execute(

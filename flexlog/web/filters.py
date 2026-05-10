@@ -13,15 +13,18 @@ from flask import current_app
 
 from flexlog.config_loader import Config
 
-# Keys used by templates anywhere in the app. M1 needs only what the
-# placeholder dashboard renders. Subsequent milestones extend this map.
+# Built-in fallbacks for every template-rendered string. The user's
+# config.json `ui_strings` overrides any of these; missing keys fall back
+# to the dictionary below; if neither is set, the `ui_filter` returns the
+# raw key so dev can spot the leak. Sections are grouped by feature area,
+# in roughly the order they were introduced in the codebase.
 BUILTIN_UI_DEFAULTS: dict[str, str] = {
-    # M1
+    # Dashboard + search
     "new_person": "New Person",
     "empty_dashboard": "Nothing here yet.",
     "search_placeholder": "Search",
     "add_session": "Add Session",
-    # M2
+    # People CRUD
     "edit_person": "Edit",
     "delete_person": "Delete",
     "delete_person_confirm_prompt": "Type the alias to confirm deletion:",
@@ -34,7 +37,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "no_sessions_yet": "No sessions yet.",
     "no_matches_for": "No matches for",
     "delete_alias_did_not_match": "Alias did not match.",
-    # M3
+    # Sessions
     "new_session": "New Session",
     "edit_session": "Edit Session",
     "delete_session": "Delete Session",
@@ -55,7 +58,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "session_count_singular": "session",
     "last_session": "Last:",
     "avg_score": "Avg:",
-    # M4
+    # Media + Media Library
     "media_library": "Media Library",
     "photos_label": "Photos",
     "audio_label": "Audio",
@@ -68,7 +71,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "references_many": "refs",
     "hard_delete_warning": "This permanently deletes the file from disk and removes all references. Cannot be undone.",
     "delete_button": "Delete",
-    # M5
+    # Sort + avatar + accessibility + error pages
     "sort_label": "Sort by",
     "sort_alias": "Alias (A→Z)",
     "sort_last_date": "Last session (newest)",
@@ -87,7 +90,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "server_error_heading": "Something went wrong",
     "server_error_body": "An unexpected error occurred. The error has been logged.",
     "skip_to_content": "Skip to content",
-    # Post-MVP: runtime config reload
+    # Settings + runtime config reload
     "settings": "Settings",
     "reload_config": "Reload now",
     "config_path_label": "Config file",

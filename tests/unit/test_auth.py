@@ -102,3 +102,40 @@ def test_is_authed_true_and_refreshes_last_seen():
     session = {"authed": True, "epoch": "x", "last_seen": old_seen}
     assert is_authed(session, {"AUTH_EPOCH": "x"}) is True
     assert session["last_seen"] > old_seen
+
+
+# ----------------------------------------------------------- Edge cases
+
+def test_validate_admin_hash_rejects_non_string():
+    """A non-string input (e.g. None passed by a misconfigured loader)
+    must produce a clear error, not a TypeError or AttributeError."""
+    with pytest.raises(ValueError, match="must be a string"):
+        validate_admin_hash(None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="must be a string"):
+        validate_admin_hash(12345)  # type: ignore[arg-type]
+
+
+def test_is_authed_false_when_last_seen_is_garbage():
+    """If the cookie was tampered with so last_seen isn't a number,
+    treat as unauth — never crash on time arithmetic."""
+    session = {"authed": True, "epoch": "x", "last_seen": "not-a-float"}
+    assert is_authed(session, {"AUTH_EPOCH": "x"}) is False
+    # Same for missing key entirely
+    session2 = {"authed": True, "epoch": "x"}
+    assert is_authed(session2, {"AUTH_EPOCH": "x"}) is False
+
+
+def test_is_authed_false_when_authed_is_falsy():
+    """authed=False / 0 / empty string all mean "not logged in" — only
+    the truthy case opens the door."""
+    for val in (False, 0, "", None):
+        session = {"authed": val}
+        assert is_authed(session, {"AUTH_EPOCH": "x"}) is False
+
+
+def test_mark_unauthed_idempotent():
+    """Calling mark_unauthed on a session that was never authed must not
+    raise — the route layer may invoke it defensively after errors."""
+    session: dict = {}
+    mark_unauthed(session)  # no-op
+    assert session == {}
