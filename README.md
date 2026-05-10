@@ -52,6 +52,29 @@ pick up label / rating-dimension changes without restarting.
 `FLEXLOG_DEBUG=1` enables Flask debug mode (do not do this when serving
 real data).
 
+## Set the admin password (first run)
+
+flexlog requires the SHA-512 hash of an admin password in
+`$FLEXLOG_DATA_DIR/.env`. Without it, `make run` refuses to start.
+
+```bash
+make hash-password
+# password: ********
+# FLEXLOG_ADMIN_PASSWORD_SHA512=<128-hex>
+```
+
+Copy the line into `$FLEXLOG_DATA_DIR/.env`:
+
+```bash
+echo 'FLEXLOG_ADMIN_PASSWORD_SHA512=<paste-the-hex>' > $FLEXLOG_DATA_DIR/.env
+chmod 600 $FLEXLOG_DATA_DIR/.env
+```
+
+Now `make run` starts. Visiting `/` shows a fake search page; type the
+password to log in, anything else 303-redirects to a real Google search
+of that term. Sessions expire after 30 minutes of inactivity, on server
+restart, or when you click Logout.
+
 ## Manual install + run (without make)
 
 ```bash
@@ -108,6 +131,7 @@ cross that threshold or the suite fails.
 - M4 (✓ shipped): media + Media Library + hash dedup
 - M5 (✓ shipped): avatar cropper + sort + polish — **MVP complete**
 - Runtime config reload (✓ shipped): edit `config.json` while the app runs; click "Reload" on `/settings`
+- Auth + fake landing (✓ shipped): Google-clone landing page, SHA-512 password gate, 30-min idle session, restart-invalidates, /logout
 
 Post-MVP backlog: encryption at rest, PDF export.
 
