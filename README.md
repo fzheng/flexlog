@@ -5,7 +5,7 @@ Local-only, single-user web app for recording recurring 1v1 sessions with people
 Internal codename for the **1v1 Journal** product spec — see
 `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`.
 
-Latest milestone shipped: **M4 — Media + Media Library** (see `## What's next`
+Latest milestone shipped: **M5 — Avatar cropper + dashboard sort + polish — MVP complete** (see `## What's next`
 for the roadmap).
 
 ## Requirements
@@ -76,15 +76,18 @@ restore: place the directory on the new machine, set `FLEXLOG_DATA_DIR`
 to its absolute path, and run `flexlog`. Both the SQLite database (M2+)
 and uploaded media (M4+) are inside that directory.
 
-## Features (M4)
+## Features
 
 - Add, edit, delete people; global tags; dashboard with search + per-person aggregates
+- **Avatar cropper (M5):** circular client-side crop on person new/edit; replace leaves the previous avatar in the Media Library as an orphan
+- **Dashboard sort (M5):** sort by alias / last session / total sessions / average score / any enabled custom rating dimension; people with no sessions sort to the bottom
 - Sessions with date, score, custom rating dimensions, notes, links
-- **Media uploads (M4):** attach photos / audio / video to a session; multiple files per type; SHA-256 dedup means uploading the same bytes twice produces only one file on disk
-- **Inline playback:** audio + video play in the page; photos open in a PhotoSwipe lightbox carousel
-- **Link thumbnails:** each session link can carry a user-uploaded thumbnail image
-- **Media Library** at `/library` listing every uploaded file with type filter, orphans-only filter, and hard-delete (only place that removes a file from disk)
-- Default avatar placeholder (real avatar upload comes in M5)
+- Media uploads (M4): attach photos / audio / video to a session; multiple files per type; SHA-256 dedup
+- Inline playback: audio + video play in the page; photos open in a PhotoSwipe lightbox carousel
+- Link thumbnails: each session link can carry a user-uploaded thumbnail image
+- Media Library at `/library` listing every uploaded file with type filter, orphans-only filter, and hard-delete
+- Friendly 404, 413, 500 pages
+- Skip-to-content link + label associations across forms
 
 ## Run the test suite
 
@@ -99,12 +102,14 @@ cross that threshold or the suite fails.
 
 ## What's next
 
-Subsequent milestones:
+- M2 (✓ shipped): people + tags + dashboard
+- M3 (✓ shipped): sessions + ratings + notes + dashboard aggregates
+- M4 (✓ shipped): media + Media Library + hash dedup
+- M5 (✓ shipped): avatar cropper + sort + polish — **MVP complete**
 
-- **M2 (✓ shipped):** people + tags + dashboard
-- **M3 (✓ shipped):** sessions + ratings + notes + dashboard aggregates
-- **M4 (✓ shipped):** media + Media Library + hash dedup
-- M5: avatar cropper + sort + polish
+Post-MVP: encryption, multi-user, PDF export, runtime config reload.
 
-See `docs/superpowers/specs/2026-05-07-flexlog-design.md` §12 for the full
-roadmap.
+## QA mapping
+
+PRD §12 items 1–24 map to tests in `tests/integration/test_qa_checklist.py`,
+one test per item with a `QA-N` docstring per `docs/superpowers/specs/2026-05-07-flexlog-design.md` §14.
