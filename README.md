@@ -46,7 +46,8 @@ make run DATA_DIR=$HOME/flexlog-data
 ```
 
 On first run, flexlog writes a default `config.json` into that directory if
-none exists. Edit it freely and restart to apply changes.
+none exists. Edit it freely — visit `/settings` and click **Reload now** to
+pick up label / rating-dimension changes without restarting.
 
 `FLEXLOG_DEBUG=1` enables Flask debug mode (do not do this when serving
 real data).
@@ -106,8 +107,9 @@ cross that threshold or the suite fails.
 - M3 (✓ shipped): sessions + ratings + notes + dashboard aggregates
 - M4 (✓ shipped): media + Media Library + hash dedup
 - M5 (✓ shipped): avatar cropper + sort + polish — **MVP complete**
+- Runtime config reload (✓ shipped): edit `config.json` while the app runs; click "Reload" on `/settings`
 
-Post-MVP: encryption, multi-user, PDF export, runtime config reload.
+Post-MVP backlog: encryption at rest, PDF export.
 
 ## QA mapping
 
