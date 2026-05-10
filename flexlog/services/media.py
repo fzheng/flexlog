@@ -13,7 +13,6 @@ since their formats are too varied for a small signature check.
 
 from __future__ import annotations
 
-import os
 import secrets
 import uuid
 from pathlib import Path
@@ -140,10 +139,20 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
                 pass
             return existing
 
-        # New file: ensure target directory, atomic rename.
+        # New file: ensure target directory, encrypt tmp → target.
+        master_key = current_app.config.get("MASTER_KEY")
+        if master_key is None:
+            raise MediaUploadError("master key not loaded; user must log in first")
+
+        from flexlog.crypto import encrypt_file_to_path
+
         target = paths.resolve_file_key(file_key)
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(tmp_path, target)
+        encrypt_file_to_path(tmp_path, target, master_key, file_sha=sha)
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
 
         new_row = MediaFile(
             id=str(uuid.uuid4()),
