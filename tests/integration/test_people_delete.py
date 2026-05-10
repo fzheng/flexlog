@@ -6,25 +6,28 @@ def _create_person(db_session, alias="Alice", tags=""):
     return p
 
 
-def test_delete_person_with_correct_alias_succeeds(client, db_session):
+def test_delete_person_with_correct_alias_succeeds(authed_client, db_session):
     from flexlog.services.people import get_person
 
     p = _create_person(db_session, alias="Alice")
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}/delete",
         data={"confirm_alias": "Alice"},
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers["Location"].endswith("/")
+    # Redirects to the dashboard (the post-MVP auth feature moved it from
+    # / to /dashboard; either is acceptable as a "back home" target).
+    loc = resp.headers["Location"]
+    assert loc.endswith("/") or loc.endswith("/dashboard")
     assert get_person(db_session, p.id) is None
 
 
-def test_delete_person_with_wrong_alias_rerenders_with_error(client, db_session):
+def test_delete_person_with_wrong_alias_rerenders_with_error(authed_client, db_session):
     from flexlog.services.people import get_person
 
     p = _create_person(db_session, alias="Alice")
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}/delete",
         data={"confirm_alias": "Bob"},
     )
@@ -35,28 +38,28 @@ def test_delete_person_with_wrong_alias_rerenders_with_error(client, db_session)
     assert get_person(db_session, p.id) is not None
 
 
-def test_delete_person_with_empty_alias_rerenders_with_error(client, db_session):
+def test_delete_person_with_empty_alias_rerenders_with_error(authed_client, db_session):
     p = _create_person(db_session, alias="Alice")
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}/delete",
         data={"confirm_alias": ""},
     )
     assert resp.status_code == 400
 
 
-def test_delete_person_404_when_missing(client):
-    resp = client.post("/people/no-such-id/delete", data={"confirm_alias": "X"})
+def test_delete_person_404_when_missing(authed_client):
+    resp = authed_client.post("/people/no-such-id/delete", data={"confirm_alias": "X"})
     assert resp.status_code == 404
 
 
-def test_delete_person_alias_check_is_case_sensitive(client, db_session):
+def test_delete_person_alias_check_is_case_sensitive(authed_client, db_session):
     """The user must type the alias exactly. Case mismatch is not a confirmation."""
     p = _create_person(db_session, alias="Alice")
-    resp = client.post(f"/people/{p.id}/delete", data={"confirm_alias": "alice"})
+    resp = authed_client.post(f"/people/{p.id}/delete", data={"confirm_alias": "alice"})
     assert resp.status_code == 400
 
 
-def test_delete_person_with_wrong_alias_still_shows_session_list(client, db_session):
+def test_delete_person_with_wrong_alias_still_shows_session_list(authed_client, db_session):
     """Regression: destroy rerender must include sessions so the list still renders."""
     from flexlog.services.people import create_person
     from flexlog.services.sessions import create_session
@@ -66,7 +69,7 @@ def test_delete_person_with_wrong_alias_still_shows_session_list(client, db_sess
     create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes="kept", links=[])
     db_session.commit()
 
-    resp = client.post(f"/people/{p.id}/delete", data={"confirm_alias": "WRONG"})
+    resp = authed_client.post(f"/people/{p.id}/delete", data={"confirm_alias": "WRONG"})
     assert resp.status_code == 400
     body = resp.get_data(as_text=True)
     # The session list must still render; "No sessions yet" should NOT appear

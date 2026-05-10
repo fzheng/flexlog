@@ -17,14 +17,14 @@ def _make(db_session, links):
     return p, s
 
 
-def test_delete_link_removes_only_that_row(client, db_session):
+def test_delete_link_removes_only_that_row(authed_client, db_session):
     from flexlog.db.models import SessionLink
 
     p, s = _make(db_session, [{"url": "https://a.com", "label": "A"}, {"url": "https://b.com", "label": "B"}])
     target = [li for li in s.links if li.url == "https://a.com"][0]
     other_id = [li.id for li in s.links if li.url == "https://b.com"][0]
 
-    resp = client.post(f"/session_links/{target.id}/delete", follow_redirects=False)
+    resp = authed_client.post(f"/session_links/{target.id}/delete", follow_redirects=False)
     assert resp.status_code == 302
     # Redirects to the session edit page
     assert f"/sessions/{s.id}/edit" in resp.headers["Location"]
@@ -34,6 +34,6 @@ def test_delete_link_removes_only_that_row(client, db_session):
     assert db_session.get(SessionLink, other_id) is not None
 
 
-def test_delete_link_404_when_missing(client):
-    resp = client.post("/session_links/nope/delete")
+def test_delete_link_404_when_missing(authed_client):
+    resp = authed_client.post("/session_links/nope/delete")
     assert resp.status_code == 404

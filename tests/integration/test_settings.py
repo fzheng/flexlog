@@ -12,8 +12,8 @@ def _write_config(data_dir, cfg: dict) -> None:
     (data_dir / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
 
 
-def test_settings_page_renders(client, tmp_data_dir):
-    resp = client.get("/settings")
+def test_settings_page_renders(authed_client, tmp_data_dir):
+    resp = authed_client.get("/settings")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Reload now" in body
@@ -22,42 +22,42 @@ def test_settings_page_renders(client, tmp_data_dir):
     assert 'method="post"' in body or 'method="POST"' in body
 
 
-def test_reload_picks_up_new_label(client, tmp_data_dir):
+def test_reload_picks_up_new_label(authed_client, tmp_data_dir):
     """Edit config.json mid-run, POST reload, verify new label is rendered."""
     cfg = _read_config(tmp_data_dir)
     cfg.setdefault("ui_strings", {})["new_person"] = "Custom New Friend"
     _write_config(tmp_data_dir, cfg)
 
-    resp = client.post("/settings/reload", follow_redirects=True)
+    resp = authed_client.post("/settings/reload", follow_redirects=True)
     assert resp.status_code == 200
     assert "Config reloaded" in resp.get_data(as_text=True)
 
-    dash = client.get("/").get_data(as_text=True)
+    dash = authed_client.get("/").get_data(as_text=True)
     assert "Custom New Friend" in dash
 
 
-def test_reload_with_invalid_json_keeps_old_config(client, tmp_data_dir):
+def test_reload_with_invalid_json_keeps_old_config(authed_client, tmp_data_dir):
     """Corrupt config.json -> flashed error + old labels still active."""
-    before = client.get("/people/new").get_data(as_text=True)
+    before = authed_client.get("/people/new").get_data(as_text=True)
     assert "New Person" in before or "New Guest" in before
 
     (tmp_data_dir / "config.json").write_text("not json {", encoding="utf-8")
 
-    resp = client.post("/settings/reload", follow_redirects=True)
+    resp = authed_client.post("/settings/reload", follow_redirects=True)
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Reload failed" in body
 
-    after = client.get("/people/new").get_data(as_text=True)
+    after = authed_client.get("/people/new").get_data(as_text=True)
     assert ("New Person" in after) or ("New Guest" in after)
 
 
-def test_reload_post_requires_csrf(csrf_client):
-    resp = csrf_client.post("/settings/reload")
+def test_reload_post_requires_csrf(csrf_authed_client):
+    resp = csrf_authed_client.post("/settings/reload")
     assert resp.status_code == 400
 
 
-def test_ui_filter_is_not_constant_folded(client, tmp_data_dir):
+def test_ui_filter_is_not_constant_folded(authed_client, tmp_data_dir):
     """Regression: Jinja2 folds `{{ "key" | ui }}` into a literal at compile
     time unless the filter is marked with @pass_context. Without the marker,
     runtime config reload has no effect on labels — the first compile bakes
@@ -70,16 +70,16 @@ def test_ui_filter_is_not_constant_folded(client, tmp_data_dir):
     enabled), THEN reload, THEN re-render and check the label changed.
     """
     # Force the dashboard template to compile.
-    pre = client.get("/").get_data(as_text=True)
+    pre = authed_client.get("/").get_data(as_text=True)
     assert "New Guest" in pre or "New Person" in pre
 
     cfg = _read_config(tmp_data_dir)
     cfg.setdefault("ui_strings", {})["new_person"] = "FoldRegressionLabel"
     _write_config(tmp_data_dir, cfg)
 
-    resp = client.post("/settings/reload", follow_redirects=True)
+    resp = authed_client.post("/settings/reload", follow_redirects=True)
     assert "Config reloaded" in resp.get_data(as_text=True)
 
-    post = client.get("/").get_data(as_text=True)
+    post = authed_client.get("/").get_data(as_text=True)
     assert "FoldRegressionLabel" in post
     assert "New Guest" not in post.split('class="btn btn-primary"')[1].split("</a>")[0]

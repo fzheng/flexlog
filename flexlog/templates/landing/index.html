@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ brand }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}">
+</head>
+<body class="landing-body">
+  <h1 class="landing-brand">{{ brand }}</h1>
+  <form class="landing-form" method="post" action="{{ url_for('landing.submit') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label for="q" class="visually-hidden">Search</label>
+    <input id="q" class="landing-input" type="text" name="q" autofocus>
+    <div class="landing-actions">
+      <button type="submit" class="landing-button">{{ "search_button" | ui }}</button>
+      <button type="submit" class="landing-button">{{ "feeling_lucky" | ui }}</button>
+    </div>
+  </form>
+</body>
+</html>

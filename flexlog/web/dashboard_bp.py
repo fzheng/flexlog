@@ -11,7 +11,7 @@ from flexlog.services.sessions import enabled_rating_dimensions
 dashboard_bp = Blueprint("home", __name__)
 
 
-@dashboard_bp.get("/")
+@dashboard_bp.get("/dashboard")
 def home():
     query = request.args.get("q", "").strip()
     sort = request.args.get("sort", "alias").strip() or "alias"

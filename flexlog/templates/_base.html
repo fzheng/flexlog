@@ -15,6 +15,12 @@
       <a href="{{ url_for('home.home') }}">{{ labels.entity.plural }}</a>
       <a href="{{ url_for('library.index') }}">{{ "media_library" | ui }}</a>
       <a href="{{ url_for('settings.index') }}">{{ "settings" | ui }}</a>
+      {% if is_authed %}
+      <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn-link">{{ "logout" | ui }}</button>
+      </form>
+      {% endif %}
     </nav>
   </header>
   <main id="main" class="site-main">

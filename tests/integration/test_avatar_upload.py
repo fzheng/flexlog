@@ -27,8 +27,8 @@ def _dataurl(raw: bytes, mime: str = "image/jpeg") -> str:
     return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
 
 
-def test_create_person_with_avatar_creates_media_file(client, db_session):
-    resp = client.post(
+def test_create_person_with_avatar_creates_media_file(authed_client, db_session):
+    resp = authed_client.post(
         "/people",
         data={"alias": "Avi", "tags": "", "avatar_blob": _dataurl(_JPEG_BYTES)},
     )
@@ -42,9 +42,9 @@ def test_create_person_with_avatar_creates_media_file(client, db_session):
     assert mf.mime_type == "image/jpeg"
 
 
-def test_replace_avatar_leaves_old_media_file_orphaned(client, db_session):
+def test_replace_avatar_leaves_old_media_file_orphaned(authed_client, db_session):
     # Create with avatar A, then update to avatar B (same person).
-    resp = client.post(
+    resp = authed_client.post(
         "/people",
         data={"alias": "Bee", "tags": "", "avatar_blob": _dataurl(_JPEG_BYTES)},
     )
@@ -63,7 +63,7 @@ def test_replace_avatar_leaves_old_media_file_orphaned(client, db_session):
         b"\x0d\x0a\x2d\xb4"
         b"\x00\x00\x00\x00IEND\xaeB`\x82"
     )
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}",
         data={"alias": "Bee", "tags": "", "avatar_blob": _dataurl(png, "image/png")},
     )
@@ -77,8 +77,8 @@ def test_replace_avatar_leaves_old_media_file_orphaned(client, db_session):
     assert old is not None
 
 
-def test_clear_avatar_sets_avatar_media_id_null(client, db_session):
-    resp = client.post(
+def test_clear_avatar_sets_avatar_media_id_null(authed_client, db_session):
+    resp = authed_client.post(
         "/people",
         data={"alias": "Cee", "tags": "", "avatar_blob": _dataurl(_JPEG_BYTES)},
     )
@@ -87,7 +87,7 @@ def test_clear_avatar_sets_avatar_media_id_null(client, db_session):
     p = db_session.query(Person).filter_by(alias="Cee").one()
     assert p.avatar_media_id is not None
 
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}",
         data={"alias": "Cee", "tags": "", "clear_avatar": "y"},
     )
@@ -97,12 +97,12 @@ def test_clear_avatar_sets_avatar_media_id_null(client, db_session):
     assert p2.avatar_media_id is None
 
 
-def test_invalid_dataurl_rejected_silently(client, db_session):
+def test_invalid_dataurl_rejected_silently(authed_client, db_session):
     """Garbage in `avatar_blob` should be ignored (treated as 'no change'),
     not crash the request. Form-level length cap catches absurd inputs;
     parser fails closed for bogus prefixes.
     """
-    resp = client.post(
+    resp = authed_client.post(
         "/people",
         data={"alias": "Dee", "tags": "", "avatar_blob": "not-a-dataurl"},
     )

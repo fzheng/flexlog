@@ -1,0 +1,94 @@
+"""End-to-end auth tests: fake landing, login, idle expiry, restart, logout."""
+from __future__ import annotations
+
+import time
+
+import pytest
+
+
+def test_anonymous_get_root_renders_fake_landing(client):
+    """GET / by an anonymous user shows the fake search page, NOT the dashboard."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "landing-brand" in body
+    # Must not leak any app-specific noun
+    for noun in ("Guests", "Add Interview", "Settings", "Media Library"):
+        assert noun not in body, f"fake page leaked {noun!r}"
+
+
+def test_wrong_password_post_redirects_to_google(client):
+    resp = client.post("/", data={"q": "hello world"})
+    assert resp.status_code == 303
+    loc = resp.headers["Location"]
+    assert loc.startswith("https://www.google.com/search?")
+    assert "q=hello+world" in loc or "q=hello%20world" in loc
+
+
+def test_empty_q_post_re_renders_landing(client):
+    resp = client.post("/", data={"q": ""})
+    assert resp.status_code == 200
+    assert "landing-brand" in resp.get_data(as_text=True)
+
+
+def test_correct_password_logs_in(client, admin_password):
+    resp = client.post("/", data={"q": admin_password})
+    assert resp.status_code == 303
+    # 303 returns to / — which (now authed) renders the dashboard inline.
+    loc = resp.headers["Location"]
+    assert loc.endswith("/") or loc.endswith("/dashboard")
+    # And subsequent dashboard request returns 200 (auth cookie applied).
+    resp2 = client.get("/dashboard")
+    assert resp2.status_code == 200
+
+
+def test_protected_route_redirects_anonymous(client):
+    resp = client.get("/people/new")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+
+
+def test_protected_route_works_for_authed(authed_client):
+    resp = authed_client.get("/people/new")
+    assert resp.status_code == 200
+
+
+def test_idle_expiry_unsets_auth(authed_client):
+    """31 minutes of idle time invalidates the session."""
+    with authed_client.session_transaction() as sess:
+        sess["last_seen"] = time.time() - (31 * 60)
+    resp = authed_client.get("/dashboard")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+
+
+def test_server_restart_invalidates_via_epoch_mismatch(authed_client):
+    """Mutating AUTH_EPOCH simulates a server restart."""
+    authed_client.application.config["AUTH_EPOCH"] = "different-epoch-token"
+    resp = authed_client.get("/dashboard")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+
+
+def test_logout_clears_session(authed_client):
+    resp = authed_client.post("/logout")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+    # After logout, dashboard redirects to /
+    resp2 = authed_client.get("/dashboard")
+    assert resp2.status_code == 303
+    assert resp2.headers["Location"].endswith("/")
+
+
+def test_missing_admin_hash_fails_startup(monkeypatch, tmp_path):
+    """create_app() must refuse to start without FLEXLOG_ADMIN_PASSWORD_SHA512."""
+    from flexlog.config_loader import DEFAULT_CONFIG_JSON
+
+    monkeypatch.setenv("FLEXLOG_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("FLEXLOG_ADMIN_PASSWORD_SHA512", raising=False)
+    (tmp_path / "config.json").write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
+    # No .env written.
+
+    from flexlog.app import create_app
+    with pytest.raises(RuntimeError, match="FLEXLOG_ADMIN_PASSWORD_SHA512"):
+        create_app()

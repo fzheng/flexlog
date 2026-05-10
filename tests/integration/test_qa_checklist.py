@@ -13,7 +13,7 @@ import sqlite3
 import pytest
 
 
-def test_qa_01_offline(client):
+def test_qa_01_offline(authed_client):
     """QA-1: app works with no internet connection.
 
     Verified by: full test suite runs offline; no test imports a remote
@@ -49,75 +49,75 @@ def test_qa_03_data_dir_required():
             os.environ["FLEXLOG_DATA_DIR"] = saved
 
 
-def test_qa_04_data_dir_valid_absolute_succeeds(client):
+def test_qa_04_data_dir_valid_absolute_succeeds(authed_client):
     """QA-4: startup succeeds when FLEXLOG_DATA_DIR is set to a valid absolute path.
 
-    The conftest fixture sets up exactly that — the test client itself is
+    The conftest fixture sets up exactly that — the test authed_client itself is
     proof.
     """
-    resp = client.get("/")
+    resp = authed_client.get("/")
     assert resp.status_code == 200
 
 
-def test_qa_05_person_crud(client, db_session):
+def test_qa_05_person_crud(authed_client, db_session):
     """QA-5: owner can create, edit, and delete a person."""
     from flexlog.db.models import Person
-    resp = client.post("/people", data={"alias": "QA5", "tags": ""})
+    resp = authed_client.post("/people", data={"alias": "QA5", "tags": ""})
     assert resp.status_code in (302, 303)
     p = db_session.query(Person).filter_by(alias="QA5").one()
-    resp = client.post(f"/people/{p.id}", data={"alias": "QA5edited", "tags": ""})
+    resp = authed_client.post(f"/people/{p.id}", data={"alias": "QA5edited", "tags": ""})
     assert resp.status_code in (302, 303)
     db_session.expire_all()
     p = db_session.query(Person).filter_by(alias="QA5edited").one()
-    resp = client.post(f"/people/{p.id}/delete", data={"confirm_alias": "QA5edited"})
+    resp = authed_client.post(f"/people/{p.id}/delete", data={"confirm_alias": "QA5edited"})
     assert resp.status_code in (302, 303)
 
 
-def test_qa_06_avatar_upload(client, db_session):
+def test_qa_06_avatar_upload(authed_client, db_session):
     """QA-6: owner can upload and crop avatar.
 
-    Crop happens client-side; the server receives the cropped bytes via
+    Crop happens authed_client-side; the server receives the cropped bytes via
     avatar_blob. Verified end-to-end by test_avatar_upload.py.
     """
     pytest.importorskip("tests.integration.test_avatar_upload")
 
 
-def test_qa_07_session_crud(client, db_session):
+def test_qa_07_session_crud(authed_client, db_session):
     """QA-7: owner can create, edit, and delete a session."""
     from flexlog.db.models import Person, Session as SessionRow
-    client.post("/people", data={"alias": "QA7", "tags": ""})
+    authed_client.post("/people", data={"alias": "QA7", "tags": ""})
     p = db_session.query(Person).filter_by(alias="QA7").one()
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}/sessions",
         data={"session_date": "2026-05-09", "overall_score": 3, "notes": ""},
     )
     assert resp.status_code in (302, 303)
     s = db_session.query(SessionRow).filter_by(person_id=p.id).one()
-    resp = client.post(
+    resp = authed_client.post(
         f"/sessions/{s.id}",
         data={"session_date": "2026-05-10", "overall_score": 4, "notes": "edited"},
     )
     assert resp.status_code in (302, 303)
-    resp = client.post(f"/sessions/{s.id}/delete")
+    resp = authed_client.post(f"/sessions/{s.id}/delete")
     assert resp.status_code in (302, 303)
 
 
-def test_qa_08_chinese_notes(client, db_session):
+def test_qa_08_chinese_notes(authed_client, db_session):
     """QA-8: Chinese notes display correctly."""
     from flexlog.db.models import Person, Session as SessionRow
-    client.post("/people", data={"alias": "QA8", "tags": ""})
+    authed_client.post("/people", data={"alias": "QA8", "tags": ""})
     p = db_session.query(Person).filter_by(alias="QA8").one()
-    client.post(
+    authed_client.post(
         f"/people/{p.id}/sessions",
         data={"session_date": "2026-05-09", "overall_score": 3, "notes": "你好世界"},
     )
     db_session.expire_all()
     s = db_session.query(SessionRow).filter_by(person_id=p.id).one()
-    resp = client.get(f"/sessions/{s.id}")
+    resp = authed_client.get(f"/sessions/{s.id}")
     assert "你好世界" in resp.get_data(as_text=True)
 
 
-def test_qa_09_multiple_media(client, db_session):
+def test_qa_09_multiple_media(authed_client, db_session):
     """QA-9: owner can upload multiple photos, audio files, and videos.
 
     Verified by test_session_with_media.py (existing M4 integration test).
@@ -125,7 +125,7 @@ def test_qa_09_multiple_media(client, db_session):
     pytest.importorskip("tests.integration.test_session_with_media")
 
 
-def test_qa_10_inline_media_playback(client, db_session):
+def test_qa_10_inline_media_playback(authed_client, db_session):
     """QA-10: audio and video play inline (HTML5 players).
 
     The detail-page template includes media_audio + media_video partials
@@ -141,7 +141,7 @@ def test_qa_10_inline_media_playback(client, db_session):
     assert "media_video.html" in detail
 
 
-def test_qa_11_photoswipe(client, db_session):
+def test_qa_11_photoswipe(authed_client, db_session):
     """QA-11: photo carousel and lightbox work.
 
     PhotoSwipe is vendored under flexlog/static/vendor/photoswipe/; init JS
@@ -152,15 +152,15 @@ def test_qa_11_photoswipe(client, db_session):
             .exists()), "PhotoSwipe vendor folder missing"
 
 
-def test_qa_12_multiple_links(client, db_session):
+def test_qa_12_multiple_links(authed_client, db_session):
     """QA-12: owner can add multiple links with optional labels.
 
     Verified by existing session route tests.
     """
     from flexlog.db.models import Person
-    client.post("/people", data={"alias": "QA12", "tags": ""})
+    authed_client.post("/people", data={"alias": "QA12", "tags": ""})
     p = db_session.query(Person).filter_by(alias="QA12").one()
-    resp = client.post(
+    resp = authed_client.post(
         f"/people/{p.id}/sessions",
         data={
             "session_date": "2026-05-09",
@@ -173,7 +173,7 @@ def test_qa_12_multiple_links(client, db_session):
     assert resp.status_code in (302, 303)
 
 
-def test_qa_13_links_open_new_tab(client, db_session):
+def test_qa_13_links_open_new_tab(authed_client, db_session):
     """QA-13: links open in a new tab (target="_blank")."""
     # Inspect the partial directly; rendering would require a session with
     # links plus a detail page fetch, but this assertion is just on the
@@ -183,16 +183,16 @@ def test_qa_13_links_open_new_tab(client, db_session):
     assert 'target="_blank"' in src
 
 
-def test_qa_14_dashboard_search(client, db_session):
+def test_qa_14_dashboard_search(authed_client, db_session):
     """QA-14: dashboard search works by alias and tag."""
-    client.post("/people", data={"alias": "Searchy", "tags": "matchtag"})
-    body = client.get("/?q=matchtag").get_data(as_text=True)
+    authed_client.post("/people", data={"alias": "Searchy", "tags": "matchtag"})
+    body = authed_client.get("/?q=matchtag").get_data(as_text=True)
     assert "Searchy" in body
-    body2 = client.get("/?q=Searc").get_data(as_text=True)
+    body2 = authed_client.get("/?q=Searc").get_data(as_text=True)
     assert "Searchy" in body2
 
 
-def test_qa_15_dashboard_sort(client, db_session):
+def test_qa_15_dashboard_sort(authed_client, db_session):
     """QA-15: dashboard sorting works for all MVP sort options."""
     pytest.importorskip("tests.integration.test_dashboard_sort")
 
@@ -225,7 +225,7 @@ def test_qa_17_invalid_config_clear_error():
     pytest.importorskip("tests.unit.test_config_loader")
 
 
-def test_qa_18_data_dir_portable(client, db_session):
+def test_qa_18_data_dir_portable(authed_client, db_session):
     """QA-18: copying $FLEXLOG_DATA_DIR + new env var preserves data.
 
     Verified by tests/integration/test_paths_serving.py and the
@@ -238,17 +238,17 @@ def test_qa_18_data_dir_portable(client, db_session):
         assert not mf.file_key.startswith("/"), f"file_key {mf.file_key!r} must be relative"
 
 
-def test_qa_19_path_traversal_safe(client):
+def test_qa_19_path_traversal_safe(authed_client):
     """QA-19: path traversal attempts in upload filenames fail safely.
 
     Sandboxing is enforced by paths.resolve_file_key + the media_bp route;
     test_media_serving.py covers the full upload + serving path.
     """
-    resp = client.get("/media/..%2Fetc%2Fpasswd")
+    resp = authed_client.get("/media/..%2Fetc%2Fpasswd")
     assert resp.status_code in (400, 403, 404)
 
 
-def test_qa_20_no_script_injection(client, db_session):
+def test_qa_20_no_script_injection(authed_client, db_session):
     """QA-20: script injection attempts in notes/tags/aliases/labels do not execute.
 
     Jinja autoescape is on by default. Smoke: write a `<script>` payload in
@@ -256,20 +256,20 @@ def test_qa_20_no_script_injection(client, db_session):
     """
     from flexlog.db.models import Person, Session as SessionRow
     payload = "<script>alert(1)</script>"
-    client.post("/people", data={"alias": "QA20", "tags": ""})
+    authed_client.post("/people", data={"alias": "QA20", "tags": ""})
     p = db_session.query(Person).filter_by(alias="QA20").one()
-    client.post(
+    authed_client.post(
         f"/people/{p.id}/sessions",
         data={"session_date": "2026-05-09", "overall_score": 3, "notes": payload},
     )
     db_session.expire_all()
     s = db_session.query(SessionRow).filter_by(person_id=p.id).one()
-    body = client.get(f"/sessions/{s.id}").get_data(as_text=True)
+    body = authed_client.get(f"/sessions/{s.id}").get_data(as_text=True)
     assert "<script>alert(1)</script>" not in body
     assert "&lt;script&gt;" in body or "&#x27;" in body or "&#39;" in body or "alert(1)" in body  # escaped or text
 
 
-def test_qa_21_no_pdf_route_or_button(client):
+def test_qa_21_no_pdf_route_or_button(authed_client):
     """QA-21: no PDF export route, button, or dependency.
 
     Scans Python source and HTML templates for pdf references. Python files
@@ -291,7 +291,7 @@ def test_qa_21_no_pdf_route_or_button(client):
         assert ">PDF<" not in text and "Download PDF" not in text
 
 
-def test_qa_22_300_people_3000_sessions_acceptable(client, db_session):
+def test_qa_22_300_people_3000_sessions_acceptable(authed_client, db_session):
     """QA-22: handles 300 people / 3000 sessions at acceptable speed.
 
     Manual benchmark — too slow for CI. This test creates 50 people / 250
@@ -314,7 +314,7 @@ def test_qa_22_300_people_3000_sessions_acceptable(client, db_session):
             )
     db_session.commit()
     t0 = time.time()
-    resp = client.get("/")
+    resp = authed_client.get("/")
     elapsed = time.time() - t0
     assert resp.status_code == 200
     assert elapsed < 1.0, f"dashboard took {elapsed:.2f}s on 50/250"

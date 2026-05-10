@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 
-def test_404_returns_rendered_template(client):
-    resp = client.get("/this-route-does-not-exist")
+def test_404_returns_rendered_template(authed_client):
+    resp = authed_client.get("/this-route-does-not-exist")
     assert resp.status_code == 404
     body = resp.get_data(as_text=True)
     assert "Page not found" in body
@@ -15,6 +15,7 @@ def test_413_returns_rendered_template(tmp_data_dir):
     """Send a request body larger than MAX_CONTENT_LENGTH — Flask returns 413
     automatically. Build a fresh app with a tiny cap so we don't need 3 GiB.
     """
+    import time
     from flexlog.app import create_app
 
     app = create_app()
@@ -23,6 +24,13 @@ def test_413_returns_rendered_template(tmp_data_dir):
     app.config["MAX_CONTENT_LENGTH"] = 10  # tiny cap, forces 413
 
     test_client = app.test_client()
+    # The auth gate would 303 the unauth POST before Flask checks body size.
+    # Pre-set the auth keys so we exercise the 413 path itself.
+    with test_client.session_transaction() as sess:
+        sess["authed"] = True
+        sess["epoch"] = app.config["AUTH_EPOCH"]
+        sess["last_seen"] = time.time()
+
     resp = test_client.post(
         "/people",
         data="x" * 100,

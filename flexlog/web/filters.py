@@ -94,6 +94,11 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "config_loaded_at_label": "Loaded at",
     "config_reload_failed": "Reload failed",
     "config_reload_succeeded": "Config reloaded.",
+    # Auth + landing page
+    "logout": "Logout",
+    "search_button": "Search",
+    "feeling_lucky": "I'm Feeling Lucky",
+    "landing_brand_subtitle": "",
 }
 
 
