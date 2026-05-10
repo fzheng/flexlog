@@ -212,3 +212,16 @@ def test_delete_session_cascades_links(client, db_session):
     client.post(f"/sessions/{s.id}/delete")
     db_session.expire_all()
     assert db_session.execute(text("SELECT COUNT(*) FROM session_link WHERE session_id = :sid"), {"sid": s.id}).scalar() == 0
+
+
+def test_session_form_includes_file_inputs(client, db_session):
+    from flexlog.services.people import create_person
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    resp = client.get(f"/people/{p.id}/sessions/new")
+    body = resp.get_data(as_text=True)
+    assert 'name="photos"' in body
+    assert 'name="audios"' in body
+    assert 'name="videos"' in body
+    assert 'multipart/form-data' in body
+    assert 'name="link_thumbnail"' in body

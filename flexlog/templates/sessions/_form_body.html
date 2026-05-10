@@ -30,17 +30,52 @@
   {% for err in form.notes.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
 </div>
 
+{# Existing media (only on edit; new is empty) #}
+{% if existing_media %}
+<fieldset class="form-row existing-media">
+  <legend>Attached media</legend>
+  <ul class="existing-media-list">
+    {% for sm in existing_media %}
+      <li>
+        <label>
+          <input type="checkbox" name="remove_session_media" value="{{ sm.id }}">
+          Remove
+        </label>
+        <span>{{ sm.media_file.original_filename or sm.media_file.file_key }} ({{ sm.media_file.media_type }})</span>
+      </li>
+    {% endfor %}
+  </ul>
+</fieldset>
+{% endif %}
+
+{# Add new media #}
+<fieldset class="form-row media-uploads">
+  <legend>{{ "add_media" | ui }}</legend>
+  <div class="form-row">
+    <label for="photos">{{ "photos_label" | ui }}</label>
+    <input type="file" id="photos" name="photos" multiple accept="image/jpeg,image/png,image/webp">
+  </div>
+  <div class="form-row">
+    <label for="audios">{{ "audio_label" | ui }}</label>
+    <input type="file" id="audios" name="audios" multiple accept="audio/mpeg,audio/wav,audio/mp4,audio/x-m4a">
+  </div>
+  <div class="form-row">
+    <label for="videos">{{ "videos_label" | ui }}</label>
+    <input type="file" id="videos" name="videos" multiple accept="video/mp4,video/webm,video/quicktime">
+  </div>
+</fieldset>
+
 <fieldset class="form-row links-row">
   <legend>{{ "links_heading" | ui }}</legend>
   <div id="link-rows" data-link-rows>
     {% for link in existing_links %}
-      {% with index = loop.index0, url = link.url, label = link.label, link_id = link.get('id', '') %}
+      {% with index = loop.index0, url = link.url, label = link.label, link_id = link.get('id', ''), link = link %}
         {% include "_partials/link_row_form.html" %}
       {% endwith %}
     {% endfor %}
     {# Always render at least one empty row #}
     {% if not existing_links %}
-      {% with index = 0, url = '', label = '', link_id = '' %}
+      {% with index = 0, url = '', label = '', link_id = '', link = none %}
         {% include "_partials/link_row_form.html" %}
       {% endwith %}
     {% endif %}

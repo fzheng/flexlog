@@ -1,4 +1,4 @@
-{# One link row in the session form. Caller passes `index`, `url`, `label`, optional `link_id`. #}
+{# One link row in the session form. Caller passes `index`, `url`, `label`, optional `link_id`, optional `link` dict. #}
 <div class="link-row" data-link-row>
   <input type="url" name="link_url" placeholder="https://..." value="{{ url or '' }}" autocomplete="off">
   <input type="text" name="link_label" placeholder="{{ 'link_label_label' | ui }}" value="{{ label or '' }}" autocomplete="off">
@@ -7,4 +7,9 @@
   {% else %}
     <button type="button" class="btn btn-link" data-remove-link>{{ "remove_link" | ui }}</button>
   {% endif %}
+  {% if link is defined and link and link.get('thumbnail_media_id') %}
+    <span class="link-thumb-existing">[thumbnail set]</span>
+    <label><input type="checkbox" name="clear_link_thumbnail" value="{{ link.id }}"> Clear</label>
+  {% endif %}
+  <input type="file" name="link_thumbnail" accept="image/jpeg,image/png,image/webp" class="link-thumbnail-input">
 </div>

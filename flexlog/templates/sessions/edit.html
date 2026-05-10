@@ -5,7 +5,7 @@
 {% block content %}
 <section class="form-section">
   <h2>{{ "edit_session" | ui }} — {{ person.alias }} ({{ session.session_date }})</h2>
-  <form method="post" action="{{ url_for('sessions.update', session_id=session.id) }}" class="session-form">
+  <form method="post" action="{{ url_for('sessions.update', session_id=session.id) }}" class="session-form" enctype="multipart/form-data">
     {{ form.csrf_token }}
     {% include "sessions/_form_body.html" %}
     <div class="form-actions">
