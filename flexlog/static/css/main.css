@@ -574,3 +574,32 @@ body {
   padding: 0.5rem;
   border-top: 1px solid var(--border);
 }
+
+/* Avatar image (M5) */
+.avatar-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #eee;
+}
+.avatar-img-md {
+  width: 96px;
+  height: 96px;
+}
+.avatar-current {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.avatar-cropper-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+#avatar-cropper-area {
+  max-width: 320px;
+  max-height: 320px;
+  margin-top: 0.5rem;
+}

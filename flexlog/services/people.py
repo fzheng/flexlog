@@ -51,12 +51,24 @@ def _apply_tags(session: Session, person: Person, tag_input: str) -> None:
         person.tags.append(tag)
 
 
-def create_person(session: Session, alias: str, tag_input: str) -> Person:
-    """Create a Person with the given alias and comma-separated tag input.
+_UNCHANGED = object()
+
+
+def create_person(
+    session: Session,
+    alias: str,
+    tag_input: str,
+    avatar_media_id: str | None = None,
+) -> Person:
+    """Create a Person with the given alias, tag input, and optional avatar.
 
     Caller is responsible for committing. Raises ValueError if alias is empty.
     """
-    person = Person(id=str(uuid.uuid4()), alias=_validate_alias(alias))
+    person = Person(
+        id=str(uuid.uuid4()),
+        alias=_validate_alias(alias),
+        avatar_media_id=avatar_media_id,
+    )
     session.add(person)
     session.flush()
     _apply_tags(session, person, tag_input)
@@ -106,14 +118,26 @@ def search_people(session: Session, query: str) -> list[Person]:
 
 
 def update_person(
-    session: Session, person_id: str, alias: str, tag_input: str
+    session: Session,
+    person_id: str,
+    alias: str,
+    tag_input: str,
+    avatar_media_id=_UNCHANGED,
 ) -> Person:
-    """Update an existing person's alias and tags. Raises PersonNotFoundError."""
+    """Update an existing person's alias and tags. Raises PersonNotFoundError.
+
+    `avatar_media_id`:
+      - omitted (sentinel): leave unchanged
+      - None: clear the avatar
+      - str: set to that media_file id
+    """
     person = get_person(session, person_id)
     if person is None:
         raise PersonNotFoundError(person_id)
     person.alias = _validate_alias(alias)
     _apply_tags(session, person, tag_input)
+    if avatar_media_id is not _UNCHANGED:
+        person.avatar_media_id = avatar_media_id
     return person
 
 

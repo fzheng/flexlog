@@ -1,4 +1,11 @@
-{# Renders a simple circular initial avatar. Used everywhere until M5. #}
-<span class="avatar-placeholder" aria-hidden="true">
-  {{ (person.alias[0] if person and person.alias else "?") | upper }}
-</span>
+{# Renders the person avatar: real `<img>` if the person has one, else
+   the initial-letter circle placeholder. Caller passes `person`. #}
+{% if person is defined and person and person.avatar_media_id and person.avatar %}
+  <img class="avatar-img"
+       src="{{ url_for('media.serve', file_key=person.avatar.file_key) }}"
+       alt="{{ person.alias }}">
+{% else %}
+  <span class="avatar-placeholder" aria-hidden="true">
+    {{ (person.alias[0] if person and person.alias else "?") | upper }}
+  </span>
+{% endif %}

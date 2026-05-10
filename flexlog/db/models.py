@@ -51,6 +51,12 @@ class Person(Base):
         order_by="Tag.name",
     )
 
+    avatar: Mapped["MediaFile | None"] = relationship(
+        "MediaFile",
+        foreign_keys=[avatar_media_id],
+        lazy="joined",
+    )
+
     sessions: Mapped[List["Session"]] = relationship(
         back_populates="person",
         cascade="all, delete-orphan",
