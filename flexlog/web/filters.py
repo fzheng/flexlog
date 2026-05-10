@@ -87,6 +87,13 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "server_error_heading": "Something went wrong",
     "server_error_body": "An unexpected error occurred. The error has been logged.",
     "skip_to_content": "Skip to content",
+    # Post-MVP: runtime config reload
+    "settings": "Settings",
+    "reload_config": "Reload now",
+    "config_path_label": "Config file",
+    "config_loaded_at_label": "Loaded at",
+    "config_reload_failed": "Reload failed",
+    "config_reload_succeeded": "Config reloaded.",
 }
 
 

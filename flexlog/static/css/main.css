@@ -634,3 +634,44 @@ body {
   left: 0;
   top: 0;
 }
+
+/* Flash messages (rendered in _base.html). */
+.flash-messages {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+}
+.flash {
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+}
+.flash-success {
+  background: #ddf4dd;
+  border-color: #4caf50;
+}
+.flash-error {
+  background: #fde2e2;
+  border-color: #d32f2f;
+}
+
+/* Settings page (runtime config reload). */
+.settings-page {
+  max-width: 40rem;
+}
+.settings-page dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+}
+.settings-page dt {
+  font-weight: 600;
+}
+.settings-page dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  word-break: break-all;
+}

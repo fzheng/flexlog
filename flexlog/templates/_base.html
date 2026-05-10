@@ -14,9 +14,19 @@
     <nav class="site-nav">
       <a href="{{ url_for('home.home') }}">{{ labels.entity.plural }}</a>
       <a href="{{ url_for('library.index') }}">{{ "media_library" | ui }}</a>
+      <a href="{{ url_for('settings.index') }}">{{ "settings" | ui }}</a>
     </nav>
   </header>
   <main id="main" class="site-main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flash-messages" role="status" aria-live="polite">
+          {% for category, message in messages %}
+            <li class="flash flash-{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
     {% block content %}{% endblock %}
   </main>
 </body>

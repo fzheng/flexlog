@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, current_app
 from flask_wtf.csrf import CSRFProtect
 
 from flexlog import paths
@@ -48,6 +49,7 @@ def create_app() -> Flask:
 
     # 2. Load (or bootstrap) config.json
     config: Config = load_or_bootstrap(paths.config_path())
+    loaded_at = datetime.now(timezone.utc)
 
     # 3. Load or create the per-install secret key
     secret_key = load_or_create_secret_key(data_dir / ".secret_key")
@@ -59,6 +61,7 @@ def create_app() -> Flask:
         static_folder=str(Path(__file__).parent / "static"),
     )
     app.config["FLEXLOG"] = config
+    app.config["FLEXLOG_LOADED_AT"] = loaded_at
     app.config["FLEXLOG_DATA_DIR"] = str(data_dir)
     app.config["SECRET_KEY"] = secret_key
     app.config["WTF_CSRF_ENABLED"] = True
@@ -82,7 +85,10 @@ def create_app() -> Flask:
 
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
-        return {"labels": build_labels_context(config)}
+        # Read the live config on each render so a runtime reload picks up
+        # entity/session label changes (not only ui_strings, which the `ui`
+        # filter handles via current_app.config["FLEXLOG"]).
+        return {"labels": build_labels_context(current_app.config["FLEXLOG"])}
 
     # Prevent Werkzeug from issuing 308 redirects for URLs with encoded slashes
     # (e.g. /media/%2Fetc%2Fpasswd). Without this, %2F gets decoded to / and
