@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% block title %}{{ "not_found_heading" | ui }} — {{ labels.app_name }}{% endblock %}
+{% block content %}
+<section class="error-page">
+  <h2>{{ "not_found_heading" | ui }}</h2>
+  <p>{{ "not_found_body" | ui }}</p>
+  <p><a href="{{ url_for('home.home') }}" class="btn">{{ labels.entity.plural }}</a></p>
+</section>
+{% endblock %}

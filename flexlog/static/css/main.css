@@ -603,3 +603,13 @@ body {
   max-height: 320px;
   margin-top: 0.5rem;
 }
+
+/* Error pages (M5 Task 5) */
+.error-page {
+  max-width: 32rem;
+  margin: 4rem auto;
+  text-align: center;
+}
+.error-page h2 {
+  margin-bottom: 0.5rem;
+}

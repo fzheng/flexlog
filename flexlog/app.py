@@ -93,6 +93,21 @@ def create_app() -> Flask:
     # 8. Register blueprints
     register_blueprints(app)
 
+    # 9. Register friendly error pages
+    from flask import render_template as _render_template
+
+    @app.errorhandler(404)
+    def _not_found(_e):
+        return _render_template("errors/404.html"), 404
+
+    @app.errorhandler(413)
+    def _too_large(_e):
+        return _render_template("errors/413.html"), 413
+
+    @app.errorhandler(500)
+    def _server_error(_e):
+        return _render_template("errors/500.html"), 500
+
     return app
 
 

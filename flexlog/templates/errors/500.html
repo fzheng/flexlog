@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% block title %}{{ "server_error_heading" | ui }} — {{ labels.app_name }}{% endblock %}
+{% block content %}
+<section class="error-page">
+  <h2>{{ "server_error_heading" | ui }}</h2>
+  <p>{{ "server_error_body" | ui }}</p>
+  <p><a href="{{ url_for('home.home') }}" class="btn">{{ labels.entity.plural }}</a></p>
+</section>
+{% endblock %}
