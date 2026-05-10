@@ -16,3 +16,14 @@ venv/
 
 # auth: secrets live in $FLEXLOG_DATA_DIR/.env, but defend against accidental repo .env
 .env
+
+# Local data dir created by `make run` (default DATA_DIR=./flexlog-data).
+# Holds .env, .secret_key, the SQLite DB, and uploads — never commit.
+flexlog-data/
+
+# Brainstorming/planning docs — kept locally for the development workflow,
+# excluded from the repo so future drafts that quote secrets, internal
+# threat-model details, etc. don't get pushed by accident. Existing files
+# under docs/superpowers/ that are already tracked are NOT removed by this
+# entry — see git rm --cached if you want to stop tracking them.
+docs/superpowers/
