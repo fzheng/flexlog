@@ -55,3 +55,31 @@ def test_reload_with_invalid_json_keeps_old_config(client, tmp_data_dir):
 def test_reload_post_requires_csrf(csrf_client):
     resp = csrf_client.post("/settings/reload")
     assert resp.status_code == 400
+
+
+def test_ui_filter_is_not_constant_folded(client, tmp_data_dir):
+    """Regression: Jinja2 folds `{{ "key" | ui }}` into a literal at compile
+    time unless the filter is marked with @pass_context. Without the marker,
+    runtime config reload has no effect on labels — the first compile bakes
+    the pre-reload value into the template forever. See app.py's `_ui`
+    wrapper for the @pass_context that opts out of this folding.
+
+    This test exercises the same path as test_reload_picks_up_new_label,
+    but specifically asserts the failure mode: render dashboard ONCE before
+    reloading (forcing the template to compile and triggering folding if
+    enabled), THEN reload, THEN re-render and check the label changed.
+    """
+    # Force the dashboard template to compile.
+    pre = client.get("/").get_data(as_text=True)
+    assert "New Guest" in pre or "New Person" in pre
+
+    cfg = _read_config(tmp_data_dir)
+    cfg.setdefault("ui_strings", {})["new_person"] = "FoldRegressionLabel"
+    _write_config(tmp_data_dir, cfg)
+
+    resp = client.post("/settings/reload", follow_redirects=True)
+    assert "Config reloaded" in resp.get_data(as_text=True)
+
+    post = client.get("/").get_data(as_text=True)
+    assert "FoldRegressionLabel" in post
+    assert "New Guest" not in post.split('class="btn btn-primary"')[1].split("</a>")[0]

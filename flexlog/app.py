@@ -80,7 +80,20 @@ def create_app() -> Flask:
     attach_to_app(app, engine, session_factory)
 
     # 7. Wire up filters + context processor
-    app.jinja_env.filters["ui"] = lambda key: ui_filter(key)
+    #
+    # The `ui` filter is wrapped with @pass_context so Jinja2's compile-time
+    # constant folding does NOT bake `{{ "key" | ui }}` calls into literals
+    # on first render. Without this, runtime config reload would have no
+    # effect on labels — the constant pool would hold pre-reload values
+    # forever. See Jinja2's nodes._FilterTestCommon.as_const for the folding
+    # logic that pass_context opts out of.
+    from jinja2 import pass_context
+
+    @pass_context
+    def _ui(_ctx, key: str) -> str:
+        return ui_filter(key)
+
+    app.jinja_env.filters["ui"] = _ui
     app.jinja_env.filters["notes_preview"] = notes_preview
 
     @app.context_processor
