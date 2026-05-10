@@ -5,7 +5,8 @@
 {% block content %}
 <section class="form-section">
   <h2>{{ "edit_person" | ui }}: {{ person.alias }}</h2>
-  <form method="post" action="{{ url_for('people.update', person_id=person.id) }}" class="person-form">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/cropperjs/cropper.min.css') }}">
+  <form method="post" action="{{ url_for('people.update', person_id=person.id) }}" class="person-form" enctype="multipart/form-data">
     {{ form.csrf_token }}
     <div class="form-row">
       <label for="alias">{{ "alias_label" | ui }}</label>
@@ -18,11 +19,16 @@
       <p class="form-help">{{ "tags_help" | ui }}</p>
       {% for err in form.tags.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
     </div>
+
+    {% include "_partials/avatar_cropper_widget.html" %}
+
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">{{ "save" | ui }}</button>
       <a class="btn btn-link" href="{{ url_for('people.detail', person_id=person.id) }}">{{ "cancel" | ui }}</a>
     </div>
   </form>
 </section>
+<script src="{{ url_for('static', filename='vendor/cropperjs/cropper.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/avatar_cropper.js') }}"></script>
 <script src="{{ url_for('static', filename='js/people_form.js') }}" defer></script>
 {% endblock %}

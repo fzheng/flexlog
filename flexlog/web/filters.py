@@ -68,6 +68,25 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "references_many": "refs",
     "hard_delete_warning": "This permanently deletes the file from disk and removes all references. Cannot be undone.",
     "delete_button": "Delete",
+    # M5
+    "sort_label": "Sort by",
+    "sort_alias": "Alias (A→Z)",
+    "sort_last_date": "Last session (newest)",
+    "sort_session_count": "Total sessions (most)",
+    "sort_avg_score": "Average score (highest)",
+    "sort_custom_prefix": "Avg ",
+    "avatar_label": "Avatar",
+    "avatar_help": "Choose an image; you'll crop it before saving.",
+    "clear_avatar_label": "Remove current avatar",
+    "crop_save": "Crop & save",
+    "crop_reset": "Reset crop",
+    "not_found_heading": "Page not found",
+    "not_found_body": "The page you tried to open doesn't exist.",
+    "too_large_heading": "Upload too large",
+    "too_large_body": "That request exceeds the maximum size your data dir is configured to accept.",
+    "server_error_heading": "Something went wrong",
+    "server_error_body": "An unexpected error occurred. The error has been logged.",
+    "skip_to_content": "Skip to content",
 }
 
 

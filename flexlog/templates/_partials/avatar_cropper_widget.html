@@ -1,0 +1,38 @@
+{# Avatar cropper widget — used by people/new.html and people/edit.html.
+   Caller passes optional `person` so we can display the current avatar.
+   The hidden `avatar_blob` field gets the cropped JPEG dataURL via JS. #}
+<div class="form-row avatar-row">
+  <span class="form-label">{{ "avatar_label" | ui }}</span>
+
+  {% if person is defined and person and person.avatar_media_id %}
+    <div class="avatar-current">
+      <img class="avatar-img avatar-img-md"
+           src="{{ url_for('media.serve', file_key=person.avatar.file_key) }}"
+           alt="{{ person.alias }} avatar">
+      <label class="avatar-clear">
+        {{ form.clear_avatar }}
+        {{ "clear_avatar_label" | ui }}
+      </label>
+    </div>
+  {% else %}
+    {{ form.clear_avatar(style="display:none") }}
+  {% endif %}
+
+  <input type="file" id="avatar-file"
+         accept="image/jpeg,image/png,image/webp">
+  <p class="form-help">{{ "avatar_help" | ui }}</p>
+
+  <div id="avatar-cropper-area" hidden>
+    <img id="avatar-cropper-img" alt="">
+  </div>
+  <div class="avatar-cropper-actions">
+    <button type="button" id="avatar-crop-save" class="btn" hidden>{{ "crop_save" | ui }}</button>
+    <button type="button" id="avatar-crop-reset" class="btn btn-link" hidden>{{ "crop_reset" | ui }}</button>
+  </div>
+
+  {{ form.avatar_blob(id="avatar-blob") }}
+
+  <p id="avatar-cropped-preview-wrap" hidden>
+    <img id="avatar-cropped-preview" alt="" width="96" height="96">
+  </p>
+</div>

@@ -126,3 +126,15 @@ def test_get_person_detail(client, db_session):
 def test_get_person_detail_404(client):
     resp = client.get("/people/no-such-id")
     assert resp.status_code == 404
+
+
+def test_person_new_form_includes_avatar_cropper(client):
+    resp = client.get("/people/new")
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert 'id="avatar-file"' in body
+    assert 'name="avatar_blob"' in body
+    assert 'name="clear_avatar"' in body
+    assert 'enctype="multipart/form-data"' in body
+    assert "cropper.min.js" in body
+    assert "avatar_cropper.js" in body
