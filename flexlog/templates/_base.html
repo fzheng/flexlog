@@ -8,6 +8,7 @@
   {% block head %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#main">{{ "skip_to_content" | ui }}</a>
   <header class="site-header">
     <h1 class="site-title">{{ labels.app_name }}</h1>
     <nav class="site-nav">
@@ -15,7 +16,7 @@
       <a href="{{ url_for('library.index') }}">{{ "media_library" | ui }}</a>
     </nav>
   </header>
-  <main class="site-main">
+  <main id="main" class="site-main">
     {% block content %}{% endblock %}
   </main>
 </body>

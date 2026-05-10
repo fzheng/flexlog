@@ -613,3 +613,19 @@ body {
 .error-page h2 {
   margin-bottom: 0.5rem;
 }
+
+/* Accessibility — skip link (M5 Task 6) */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: #000;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  z-index: 1000;
+  text-decoration: none;
+}
+.skip-link:focus {
+  left: 0;
+  top: 0;
+}
