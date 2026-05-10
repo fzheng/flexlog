@@ -158,11 +158,27 @@ class DashboardRow:
     avg_overall_score: float | None
 
 
-def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
+_VALID_SCALAR_SORTS = ("alias", "last_date", "session_count", "avg_score")
+
+
+def list_dashboard_rows(
+    session: Session,
+    query: str,
+    sort: str = "alias",
+) -> list[DashboardRow]:
     """Return DashboardRows: one per person, with session aggregates.
 
     Search semantics match search_people: empty query → all; non-empty →
     case-insensitive substring match on alias OR tag.name OR tag.slug.
+
+    Sort options:
+      * "alias"          — alphabetical (default)
+      * "last_date"      — last_session_date desc, NULLs last, alias asc tiebreak
+      * "session_count"  — session_count desc, alias asc tiebreak
+      * "avg_score"      — avg_overall_score desc, NULLs last, alias asc tiebreak
+      * "custom:<dim_id>" — Python-side average of that dimension across the
+                            person's sessions; NULLs last; alias asc tiebreak.
+
     Aggregates computed in a single grouped query with LEFT JOIN through
     session — people with no sessions still appear (zero/None aggregates).
     """
@@ -176,7 +192,6 @@ def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
         )
         .outerjoin(SessionRow, SessionRow.person_id == Person.id)
         .group_by(Person.id)
-        .order_by(Person.alias.collate("NOCASE"))
         .options(selectinload(Person.tags))
     )
 
@@ -195,9 +210,9 @@ def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
         )
         base = base.where(or_(Person.alias.ilike(like), exists(tag_match)))
 
-    out: list[DashboardRow] = []
+    rows: list[DashboardRow] = []
     for person, count, last_date, avg_score in session.execute(base).all():
-        out.append(
+        rows.append(
             DashboardRow(
                 person=person,
                 session_count=int(count or 0),
@@ -205,4 +220,75 @@ def list_dashboard_rows(session: Session, query: str) -> list[DashboardRow]:
                 avg_overall_score=float(avg_score) if avg_score is not None else None,
             )
         )
-    return out
+
+    return _sort_rows(session, rows, sort)
+
+
+def _sort_rows(
+    session: Session, rows: list[DashboardRow], sort: str
+) -> list[DashboardRow]:
+    """Sort the dashboard rows by the requested column. Pure Python sort —
+    fine at the bounded scale of the MVP (≤300 people).
+    """
+    alias_key = lambda r: r.person.alias.casefold()  # noqa: E731
+
+    if sort == "alias" or sort not in _VALID_SCALAR_SORTS and not sort.startswith("custom:"):
+        return sorted(rows, key=alias_key)
+
+    if sort == "last_date":
+        return sorted(rows, key=lambda r: (r.last_session_date is None, _neg_str(r.last_session_date), alias_key(r)))
+
+    if sort == "session_count":
+        return sorted(rows, key=lambda r: (-r.session_count, alias_key(r)))
+
+    if sort == "avg_score":
+        return sorted(rows, key=lambda r: (r.avg_overall_score is None, -(r.avg_overall_score or 0.0), alias_key(r)))
+
+    if sort.startswith("custom:"):
+        dim_id = sort.split(":", 1)[1]
+        avgs = _custom_dim_averages(session, dim_id)
+        return sorted(
+            rows,
+            key=lambda r: (avgs.get(r.person.id) is None, -(avgs.get(r.person.id) or 0.0), alias_key(r)),
+        )
+
+    return sorted(rows, key=alias_key)
+
+
+def _neg_str(s: str | None) -> str:
+    """Sort strings descending by negating their lexical order using a chr(255)
+    fill so that 'higher' ISO dates sort first when used as a positive key.
+    """
+    if s is None:
+        return ""
+    # Use complement: reverse-sort ISO date strings by inverting each char.
+    return "".join(chr(255 - ord(c)) for c in s)
+
+
+def _custom_dim_averages(session: Session, dim_id: str) -> dict[str, float]:
+    """Return {person_id: avg_for_dim} across all sessions, ignoring sessions
+    that don't carry that dimension. Pure Python — bounded at MVP scale.
+    """
+    import json
+    rows = session.execute(
+        select(SessionRow.person_id, SessionRow.custom_ratings_json)
+    ).all()
+    sums: dict[str, list[float]] = {}
+    for person_id, raw in rows:
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        v = data.get(dim_id)
+        if v is None:
+            continue
+        try:
+            num = float(v)
+        except (TypeError, ValueError):
+            continue
+        sums.setdefault(person_id, []).append(num)
+    return {pid: sum(vs) / len(vs) for pid, vs in sums.items() if vs}

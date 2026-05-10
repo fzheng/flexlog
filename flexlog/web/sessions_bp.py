@@ -5,7 +5,6 @@ from __future__ import annotations
 from flask import (
     Blueprint,
     abort,
-    current_app,
     flash,
     redirect,
     render_template,
@@ -20,6 +19,7 @@ from flexlog.services.sessions import (
     SessionNotFoundError,
     create_session,
     delete_session,
+    enabled_rating_dimensions,
     get_session,
     split_custom_ratings,
     update_session,
@@ -43,15 +43,10 @@ def _session_or_404(session_id: str):
     return s
 
 
-def _enabled_rating_dimensions():
-    cfg = current_app.config["FLEXLOG"]
-    return [r for r in cfg.ratings if r.enabled]
-
-
 def _parse_custom_ratings_from_request() -> dict[str, int]:
     """Pull rating_<id> form fields, validate against enabled dimensions."""
     out: dict[str, int] = {}
-    for dim in _enabled_rating_dimensions():
+    for dim in enabled_rating_dimensions():
         raw = (request.form.get(f"rating_{dim.id}") or "").strip()
         if not raw:
             continue
@@ -98,7 +93,7 @@ def new(person_id: str):
         "sessions/new.html",
         form=form,
         person=person,
-        rating_dimensions=_enabled_rating_dimensions(),
+        rating_dimensions=enabled_rating_dimensions(),
         existing_ratings={},
         existing_links=[],
         existing_media=[],
@@ -109,7 +104,7 @@ def new(person_id: str):
 def create(person_id: str):
     person = _person_or_404(person_id)
     form = SessionForm()
-    rating_dimensions = _enabled_rating_dimensions()
+    rating_dimensions = enabled_rating_dimensions()
     if not form.validate_on_submit():
         return render_template(
             "sessions/new.html",
@@ -142,9 +137,9 @@ def create(person_id: str):
 @sessions_bp.get("/sessions/<session_id>")
 def detail(session_id: str):
     s = _session_or_404(session_id)
-    enabled_ids = [d.id for d in _enabled_rating_dimensions()]
+    enabled_ids = [d.id for d in enabled_rating_dimensions()]
     current, archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
-    label_map = {d.id: d.label for d in _enabled_rating_dimensions()}
+    label_map = {d.id: d.label for d in enabled_rating_dimensions()}
     current_with_labels = [(rid, label_map[rid], val) for rid, val in current]
     photos = [j.media_file for j in s.media_joins if j.media_file.media_type == "photo"]
     audios = [j.media_file for j in s.media_joins if j.media_file.media_type == "audio"]
@@ -176,7 +171,7 @@ def edit(session_id: str):
         "overall_score": s.overall_score,
         "notes": s.notes or "",
     })
-    enabled_ids = [d.id for d in _enabled_rating_dimensions()]
+    enabled_ids = [d.id for d in enabled_rating_dimensions()]
     current_pairs, _archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
     existing_ratings = dict(current_pairs)
     existing_links = [
@@ -189,7 +184,7 @@ def edit(session_id: str):
         form=form,
         person=s.person,
         session=s,
-        rating_dimensions=_enabled_rating_dimensions(),
+        rating_dimensions=enabled_rating_dimensions(),
         existing_ratings=existing_ratings,
         existing_links=existing_links,
         existing_media=existing_media,
@@ -200,7 +195,7 @@ def edit(session_id: str):
 def update(session_id: str):
     s = _session_or_404(session_id)
     form = SessionForm()
-    rating_dimensions = _enabled_rating_dimensions()
+    rating_dimensions = enabled_rating_dimensions()
     if not form.validate_on_submit():
         return render_template(
             "sessions/edit.html",

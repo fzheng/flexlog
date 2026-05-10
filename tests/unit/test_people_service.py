@@ -183,3 +183,58 @@ def test_delete_person_does_not_orphan_tag(db_session):
 def test_delete_person_missing_raises(db_session):
     with pytest.raises(PersonNotFoundError):
         delete_person(db_session, "nope")
+
+
+def test_list_dashboard_rows_sort_alias_default(db_session):
+    from flexlog.services.people import create_person, list_dashboard_rows
+    create_person(db_session, alias="charlie", tag_input="")
+    create_person(db_session, alias="alice", tag_input="")
+    create_person(db_session, alias="Bob", tag_input="")
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="alias")
+    assert [r.person.alias for r in rows] == ["alice", "Bob", "charlie"]
+
+
+def test_list_dashboard_rows_sort_last_date_nulls_last(db_session):
+    from datetime import date
+    from flexlog.services.people import create_person, list_dashboard_rows
+    from flexlog.services.sessions import create_session
+    a = create_person(db_session, alias="A", tag_input="")
+    b = create_person(db_session, alias="B", tag_input="")
+    c = create_person(db_session, alias="C", tag_input="")
+    db_session.commit()
+    create_session(db_session, person_id=a.id, session_date="2026-01-15", overall_score=3, notes="", custom_ratings={}, links=[])
+    create_session(db_session, person_id=b.id, session_date="2026-03-10", overall_score=4, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="last_date")
+    aliases = [r.person.alias for r in rows]
+    # B (most recent), A (older), C (no sessions — last)
+    assert aliases == ["B", "A", "C"]
+
+
+def test_list_dashboard_rows_sort_session_count(db_session):
+    from flexlog.services.people import create_person, list_dashboard_rows
+    from flexlog.services.sessions import create_session
+    a = create_person(db_session, alias="A", tag_input="")
+    b = create_person(db_session, alias="B", tag_input="")
+    db_session.commit()
+    for d in ("2026-01-01", "2026-01-02", "2026-01-03"):
+        create_session(db_session, person_id=a.id, session_date=d, overall_score=3, notes="", custom_ratings={}, links=[])
+    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=3, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="session_count")
+    assert [r.person.alias for r in rows] == ["A", "B"]
+
+
+def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
+    from flexlog.services.people import create_person, list_dashboard_rows
+    from flexlog.services.sessions import create_session
+    a = create_person(db_session, alias="A", tag_input="")
+    b = create_person(db_session, alias="B", tag_input="")
+    c = create_person(db_session, alias="C", tag_input="")  # no sessions
+    db_session.commit()
+    create_session(db_session, person_id=a.id, session_date="2026-01-01", overall_score=4, notes="", custom_ratings={}, links=[])
+    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=2, notes="", custom_ratings={}, links=[])
+    db_session.commit()
+    rows = list_dashboard_rows(db_session, query="", sort="avg_score")
+    assert [r.person.alias for r in rows] == ["A", "B", "C"]

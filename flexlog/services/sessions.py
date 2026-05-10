@@ -17,12 +17,19 @@ import json
 import re
 import uuid
 
+from flask import current_app
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from flexlog.db.models import Person, Session as SessionRow, SessionLink
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def enabled_rating_dimensions():
+    """Return the list of enabled rating dimensions from app config."""
+    cfg = current_app.config["FLEXLOG"]
+    return [r for r in cfg.ratings if r.enabled]
 
 
 class SessionNotFoundError(LookupError):
