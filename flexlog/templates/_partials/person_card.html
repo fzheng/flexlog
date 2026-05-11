@@ -14,7 +14,6 @@
       <p class="person-card-stats">
         <span>{{ row.session_count }} {{ "session_count_singular" | ui if row.session_count == 1 else "session_count" | ui }}</span>
         {% if row.last_session_date %}<span>{{ "last_session" | ui }} {{ row.last_session_date }}</span>{% endif %}
-        {% if row.avg_overall_score is not none %}<span>{{ "avg_score" | ui }} {{ "%.1f"|format(row.avg_overall_score) }}/5</span>{% endif %}
       </p>
     {% endif %}
   </div>

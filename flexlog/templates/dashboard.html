@@ -18,8 +18,7 @@
       <option value="alias"         {% if sort == "alias" %}selected{% endif %}>{{ "sort_alias" | ui }}</option>
       <option value="last_date"     {% if sort == "last_date" %}selected{% endif %}>{{ "sort_last_date" | ui }}</option>
       <option value="session_count" {% if sort == "session_count" %}selected{% endif %}>{{ "sort_session_count" | ui }}</option>
-      <option value="avg_score"     {% if sort == "avg_score" %}selected{% endif %}>{{ "sort_avg_score" | ui }}</option>
-      {% for dim in rating_dimensions %}
+      {% for dim in sortable_dimensions %}
         <option value="custom:{{ dim.id }}" {% if sort == "custom:" ~ dim.id %}selected{% endif %}>{{ "sort_custom_prefix" | ui }}{{ dim.label }}</option>
       {% endfor %}
     </select>

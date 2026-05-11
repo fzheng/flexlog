@@ -18,7 +18,6 @@ def test_dashboard_rows_person_with_no_sessions(db_session):
     assert row.person.alias == "Alice"
     assert row.session_count == 0
     assert row.last_session_date is None
-    assert row.avg_overall_score is None
 
 
 def test_dashboard_rows_aggregates(db_session):
@@ -34,7 +33,6 @@ def test_dashboard_rows_aggregates(db_session):
     row = rows[0]
     assert row.session_count == 3
     assert row.last_session_date == "2026-04-15"
-    assert row.avg_overall_score == 4.0  # (4+5+3)/3
 
 
 def test_dashboard_rows_search_by_alias(db_session):

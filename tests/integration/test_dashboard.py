@@ -93,8 +93,6 @@ def test_dashboard_shows_session_aggregates(authed_client, db_session):
     assert "2 sessions" in body
     # Last session date
     assert "2026-05-01" in body
-    # Average overall score (4+5)/2 = 4.5
-    assert "4.5" in body
 
 
 def test_dashboard_singular_session_count_for_one_session(authed_client, db_session):

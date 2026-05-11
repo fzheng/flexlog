@@ -226,7 +226,7 @@ def test_list_dashboard_rows_sort_session_count(db_session):
     assert [r.person.alias for r in rows] == ["A", "B"]
 
 
-def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
+def test_list_dashboard_rows_sort_custom_dim_nulls_last(db_session):
     from flexlog.services.people import create_person, list_dashboard_rows
     from flexlog.services.sessions import create_session
     a = create_person(db_session, alias="A", tag_input="")
@@ -236,7 +236,8 @@ def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
     create_session(db_session, person_id=a.id, session_date="2026-01-01", ratings={"energy": 4}, notes="", link_urls=[])
     create_session(db_session, person_id=b.id, session_date="2026-01-01", ratings={"energy": 2}, notes="", link_urls=[])
     db_session.commit()
-    rows = list_dashboard_rows(db_session, query="", sort="avg_score")
+    rows = list_dashboard_rows(db_session, query="", sort="custom:energy")
+    # A (avg 4.0) before B (avg 2.0) before C (no rating, NULLs last)
     assert [r.person.alias for r in rows] == ["A", "B", "C"]
 
 

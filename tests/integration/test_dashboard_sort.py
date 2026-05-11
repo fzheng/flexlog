@@ -45,5 +45,7 @@ def test_sort_select_renders_with_options(authed_client, db_session):
     resp = authed_client.get("/")
     body = resp.get_data(as_text=True)
     assert 'name="sort"' in body
-    for v in ("alias", "last_date", "session_count", "avg_score"):
+    for v in ("alias", "last_date", "session_count"):
         assert f'value="{v}"' in body
+    # avg_score has been removed; sortable dims appear as custom:<id>
+    assert 'value="avg_score"' not in body
