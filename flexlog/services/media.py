@@ -28,6 +28,16 @@ from flexlog.hashing import sha256_hex_stream
 
 CHUNK = 1024 * 1024  # 1 MiB
 
+# HEIC support: pillow-heif registers itself as a Pillow opener. If the
+# system libheif isn't present, the import fails and HEIC uploads are
+# rejected with a clear message rather than crashing the app.
+try:
+    import pillow_heif  # type: ignore[import-not-found]
+    pillow_heif.register_heif_opener()
+    _HEIC_SUPPORT = True
+except Exception:  # pragma: no cover — only fires when libheif is missing
+    _HEIC_SUPPORT = False
+
 
 class MediaUploadError(RuntimeError):
     """Raised when an upload fails validation."""
@@ -37,11 +47,16 @@ class UnsupportedMediaTypeError(MediaUploadError):
     """Raised when MIME type is outside the allowlist."""
 
 
-# MIME → media_type classification (matches paths._MIME_TO_EXT keys)
+# MIME → media_type classification (matches paths._MIME_TO_EXT keys).
+# image/heic + image/heif are accepted at upload time but always transcoded
+# to JPEG for storage — browsers other than Safari can't render HEIC, and
+# the iPhone-default format would otherwise be invisible from Chrome/Firefox.
 _MIME_TO_TYPE: dict[str, str] = {
     "image/jpeg": "photo",
     "image/png": "photo",
     "image/webp": "photo",
+    "image/heic": "photo",
+    "image/heif": "photo",
     "audio/mpeg": "audio",
     "audio/wav": "audio",
     "audio/mp4": "audio",
@@ -50,6 +65,15 @@ _MIME_TO_TYPE: dict[str, str] = {
     "video/webm": "video",
     "video/quicktime": "video",
 }
+
+# HEIC/HEIF brand codes inside an ISO Base Media File Format `ftyp` box.
+# The brand sits at bytes 8..12 of the file (after the 4-byte box size and
+# the 4-byte `ftyp` type tag).
+_HEIC_BRANDS = frozenset({
+    b"heic", b"heix", b"heim", b"heis",
+    b"hevc", b"hevx", b"hevm", b"hevs",
+    b"mif1", b"msf1",
+})
 
 
 def _detect_mime_from_bytes(head: bytes) -> str | None:
@@ -62,7 +86,82 @@ def _detect_mime_from_bytes(head: bytes) -> str | None:
         return "image/png"
     if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WEBP":
         return "image/webp"
+    if _looks_like_heic(head):
+        return "image/heic"
     return None
+
+
+def _looks_like_heic(head: bytes) -> bool:
+    """ISO BMFF `ftyp` box with a known HEIC/HEIF brand at bytes 8..12."""
+    if len(head) < 12:
+        return False
+    if head[4:8] != b"ftyp":
+        return False
+    return head[8:12] in _HEIC_BRANDS
+
+
+def _transcode_heic_to_jpeg(src_path) -> tuple[str, int, bytes]:
+    """Open an HEIC file at `src_path`, save a high-quality JPEG to a
+    sibling tmp path, rewrite `src_path` to point at the JPEG bytes.
+
+    Resolution-preserving: no resize, quality=95, subsampling=0 (4:4:4 — no
+    chroma subsampling so fine red/orange detail and skin tones stay sharp),
+    optimize=True. EXIF is preserved when present.
+
+    Returns (sha256_hex, size_bytes, head_bytes_64) for the new JPEG so the
+    caller can resume the dedup/encrypt pipeline without re-streaming.
+    """
+    import hashlib
+    import io
+
+    from PIL import Image
+
+    img = Image.open(src_path)
+    # Force decode now while the file handle is still cheap; later operations
+    # might lazy-decode and we'd lose track of errors here.
+    img.load()
+    exif_bytes = img.info.get("exif")
+
+    # Write to a fresh tmp adjacent to the source, then replace.
+    new_path = src_path.with_suffix(src_path.suffix + ".jpg")
+    save_kwargs: dict = {
+        "format": "JPEG",
+        "quality": 95,
+        "subsampling": 0,  # 4:4:4, no chroma downsampling
+        "optimize": True,
+    }
+    if exif_bytes:
+        save_kwargs["exif"] = exif_bytes
+
+    # Some HEIC inputs decode to non-RGB modes (e.g. RGBA, P). JPEG only
+    # supports RGB/L/CMYK; convert as needed.
+    if img.mode not in ("RGB", "L", "CMYK"):
+        img = img.convert("RGB")
+
+    img.save(new_path, **save_kwargs)
+    img.close()
+
+    # Re-hash the JPEG bytes and capture a fresh head for the magic-byte check.
+    h = hashlib.sha256()
+    size = 0
+    head_bytes = b""
+    with new_path.open("rb") as f:
+        while True:
+            chunk = f.read(CHUNK)
+            if not chunk:
+                break
+            if not head_bytes:
+                head_bytes = chunk[:64]
+            size += len(chunk)
+            h.update(chunk)
+
+    # Replace the source tmp with the JPEG (caller continues to use src_path).
+    try:
+        src_path.unlink()
+    except FileNotFoundError:
+        pass
+    new_path.replace(src_path)
+    return h.hexdigest(), size, head_bytes
 
 
 def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
@@ -123,6 +222,22 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
                 raise MediaUploadError(
                     f"declared MIME {declared_mime!r} does not match magic bytes ({detected!r})"
                 )
+
+        # HEIC/HEIF: confirm magic bytes, then transcode to JPEG for storage
+        # so non-Safari browsers can render the photo. The user's resolution
+        # is preserved (no resize, quality=95, no chroma subsampling).
+        if declared_mime in ("image/heic", "image/heif"):
+            if not _looks_like_heic(head_bytes):
+                raise MediaUploadError(
+                    f"declared MIME {declared_mime!r} does not match magic bytes"
+                )
+            if not _HEIC_SUPPORT:
+                raise UnsupportedMediaTypeError(
+                    "HEIC upload received but pillow-heif / libheif is not "
+                    "available on this server"
+                )
+            sha, size, head_bytes = _transcode_heic_to_jpeg(tmp_path)
+            declared_mime = "image/jpeg"  # everything below is JPEG-shaped now
 
         media_type = _MIME_TO_TYPE[declared_mime]
         file_key = paths.file_key_for(sha, declared_mime)

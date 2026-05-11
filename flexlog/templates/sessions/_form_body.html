@@ -27,7 +27,7 @@
 {# Per-kind pending-uploads list. JS owns the list contents; the server
    reads the hidden <input name="<kind>_keys"> values on submit. #}
 {% for kind, label_key, accept in [
-     ('photo', 'photos_label', 'image/jpeg,image/png,image/webp'),
+     ('photo', 'photos_label', 'image/jpeg,image/png,image/webp,image/heic,image/heif'),
      ('audio', 'audio_label',  'audio/mpeg,audio/wav,audio/mp4,audio/x-m4a'),
      ('video', 'videos_label', 'video/mp4,video/webm,video/quicktime'),
 ] %}

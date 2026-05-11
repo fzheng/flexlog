@@ -80,3 +80,32 @@ def _csrf_token_from(client):
         m = re.search(r'<meta name="csrf-token" content="([^"]+)"', body)
     assert m is not None, "no CSRF token in rendered form"
     return m.group(1)
+
+
+def test_upload_endpoint_transcodes_heic_to_jpeg(csrf_authed_client):
+    """An iPhone-style HEIC upload should be accepted and stored as a
+    JPEG (so non-Safari browsers can render it). Resolution must be
+    preserved."""
+    from PIL import Image
+    import pillow_heif  # noqa: F401 — opener registered by services.media import
+
+    img = Image.new("RGB", (1280, 720), color=(40, 90, 160))
+    buf = io.BytesIO()
+    img.save(buf, format="HEIF", quality=90)
+    heic_bytes = buf.getvalue()
+
+    resp = csrf_authed_client.post(
+        "/sessions/upload",
+        data={"kind": "photo",
+              "file": (io.BytesIO(heic_bytes), "iphone.heic", "image/heic")},
+        content_type="multipart/form-data",
+        headers={"X-CSRFToken": _csrf_token_from(csrf_authed_client)},
+    )
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    j = resp.get_json()
+    assert j["media_type"] == "photo"
+    # Transcoded — stored as JPEG, not HEIC.
+    assert j["mime"] == "image/jpeg"
+    # Filename preserved from the upload (so the user sees "iphone.heic"
+    # in the Media Library even though the bytes on disk are JPEG).
+    assert j["original_filename"] == "iphone.heic"
