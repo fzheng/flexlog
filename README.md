@@ -61,6 +61,16 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.3.0 — Settings UI + session-form UX overhaul
+
+- **Settings page** at `/settings` — five tabs (App, Ratings, UI strings, Limits, Raw JSON) replace hand-editing `config.json`.
+- **Custom rating fields** — the hardcoded `overall_score` is gone. All rating dimensions are defined in config (add / rename / disable / delete / reorder). Existing data is migrated automatically on first launch.
+- **Progressive media uploads** — photos / audio / video upload immediately when added, with per-file progress and remove. Save is a fast link-only operation.
+- **Revamped links UI** — single URL textbox + Add. Validated client-side and server-side.
+- **Session detail reorder** — Links → Ratings → Notes → Audio → Photos → Videos. Audio plays inline; the redundant Download anchor is removed.
+
+**Migration:** runs automatically on first startup via `PRAGMA user_version`. The previous `overall_score` column is merged into a unified `ratings_json` keyed by config dimension id. No data wipe; backups remain wise before any upgrade.
+
 ## Features
 
 - People with global tags; dashboard with search + sort (alphabetical,
