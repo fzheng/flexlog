@@ -41,6 +41,7 @@ class RatingDimension:
     scale_min: int
     scale_max: int
     enabled: bool
+    sortable: bool = True
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,10 @@ def validate_config_dict(raw: dict) -> tuple[Config | None, list[str]]:
     to reuse for partial-section saves."""
     if not isinstance(raw, dict):
         return None, ["config must be a JSON object at the top level"]
+
+    sv = raw.get("schema_version")
+    if sv != 2:
+        return None, [f"schema_version must be 2; got {sv!r}"]
 
     errors: list[str] = []
     app = _parse_app(raw.get("app"), errors)
@@ -152,8 +157,8 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
         if not isinstance(scale_min, int) or scale_min < 0:
             errors.append(f"{prefix}.scale_min must be an integer >= 0")
             continue
-        if not isinstance(scale_max, int) or scale_max > 5 or scale_max <= scale_min:
-            errors.append(f"{prefix}.scale_max must be an integer in (scale_min, 5]")
+        if not isinstance(scale_max, int) or scale_max > 100 or scale_max <= scale_min:
+            errors.append(f"{prefix}.scale_max must be an integer in (scale_min, 100]")
             continue
         enabled = entry.get("enabled", True)
         if not isinstance(enabled, bool):
@@ -161,6 +166,10 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
             continue
         if enabled:
             enabled_count += 1
+        sortable = entry.get("sortable", True)
+        if not isinstance(sortable, bool):
+            errors.append(f"{prefix}.sortable must be a boolean")
+            continue
         out.append(
             RatingDimension(
                 id=rid,
@@ -169,6 +178,7 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
                 scale_min=scale_min,
                 scale_max=scale_max,
                 enabled=enabled,
+                sortable=sortable,
             )
         )
     if enabled_count > _MAX_ENABLED_RATINGS:
@@ -226,6 +236,7 @@ def _parse_limits(value: Any, errors: list[str]) -> Limits | None:
 # Canonical default config.json — used at first-run bootstrap.
 # Mirrors the example in PRD §6.1.
 DEFAULT_CONFIG_JSON = """{
+  "schema_version": 2,
   "app": {
     "name": "Interview Log",
     "entity_singular": "Guest",
@@ -235,20 +246,13 @@ DEFAULT_CONFIG_JSON = """{
   },
   "ratings": [
     {
-      "id": "overall_quality",
-      "label": "Overall Quality",
-      "description": "General impression of the session",
+      "id": "energy",
+      "label": "Energy",
+      "description": "How energetic the session felt",
       "scale_min": 0,
       "scale_max": 5,
-      "enabled": true
-    },
-    {
-      "id": "clarity",
-      "label": "Clarity",
-      "description": "How clear and articulate the person was",
-      "scale_min": 0,
-      "scale_max": 5,
-      "enabled": true
+      "enabled": true,
+      "sortable": true
     }
   ],
   "ui_strings": {
