@@ -272,13 +272,46 @@ DEFAULT_CONFIG_JSON = """{
 """
 
 
+def _upgrade_v1_config_dict(raw: dict) -> dict:
+    """Mutate `raw` from the v0.2.0 schema shape to v2:
+
+    - add `schema_version: 2`
+    - default `sortable: True` on each rating dim that lacks it
+
+    Other fields are untouched so user customizations survive. Caller
+    is responsible for writing the result back to disk.
+    """
+    raw["schema_version"] = 2
+    ratings = raw.get("ratings")
+    if isinstance(ratings, list):
+        for r in ratings:
+            if isinstance(r, dict) and "sortable" not in r:
+                r["sortable"] = True
+    return raw
+
+
 def load_or_bootstrap(path: Path) -> Config:
     """Load config.json. If absent, write the default first, then load.
 
-    Existing-but-malformed files are NOT overwritten — they raise so the user
-    can fix their hand-edited file.
+    If the file exists but predates the v2 schema (missing `schema_version`
+    or `schema_version == 1`), auto-upgrade by filling in the v2 defaults
+    and rewriting the file. Other validation errors are NOT silently
+    rewritten — they raise so the user can fix their hand-edited file.
     """
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
+        return load_config(path)
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return load_config(path)  # surfaces the parse error as ConfigError
+
+    if isinstance(raw, dict):
+        sv = raw.get("schema_version")
+        if sv is None or sv == 1:
+            upgraded = _upgrade_v1_config_dict(raw)
+            path.write_text(json.dumps(upgraded, indent=2), encoding="utf-8")
+
     return load_config(path)
