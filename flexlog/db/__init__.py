@@ -28,10 +28,11 @@ def make_engine(db_path: Path, sqlcipher_key_hex: str) -> Engine:
     `sqlcipher_key_hex` must be 64 hex chars (32 bytes). It's applied via
     `PRAGMA key = "x'<hex>'"` on every new connection.
 
-    Uses StaticPool (single connection re-used) since flexlog is
-    single-user and we want every request to see the same key-set
-    connection — and we want to avoid the per-connect Argon2id-equivalent
-    cost SQLCipher imposes on opening a fresh handle.
+    Uses SingletonThreadPool (one connection per worker thread) so
+    Flask's threaded=True server can serve concurrent requests without
+    cross-thread sharing of a single DBAPI connection. Each thread pays
+    the PRAGMA key cost once on its first DB touch; the cost is small
+    (<10 ms) compared with the typical request latency.
     """
     if len(sqlcipher_key_hex) != 64:
         raise ValueError(
@@ -43,8 +44,9 @@ def make_engine(db_path: Path, sqlcipher_key_hex: str) -> Engine:
     engine = create_engine(
         f"sqlite:///{db_path}",
         module=sqlcipher_dbapi,
-        connect_args={"check_same_thread": False},
-        poolclass=pool.StaticPool,
+        connect_args={"check_same_thread": True},
+        poolclass=pool.SingletonThreadPool,
+        pool_size=5,  # caps total open connections; threads beyond wait briefly
     )
 
     @event.listens_for(engine, "connect")
