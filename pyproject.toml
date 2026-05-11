@@ -29,7 +29,7 @@ flexlog = "flexlog.__main__:main"
 include = ["flexlog*"]
 
 [tool.setuptools.package-data]
-flexlog = ["templates/*.html", "static/**/*"]
+flexlog = ["templates/**/*.html", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
