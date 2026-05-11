@@ -30,7 +30,14 @@ def _parse_or_empty(raw):
 
 
 def migrate_v1_to_v2(engine: Engine) -> None:
-    """Apply the v1 → v2 migration. No-op on a v2 DB."""
+    """Apply the v1 → v2 migration. No-op on a v2 DB.
+
+    Structural changes (dropping overall_score / custom_ratings_json) are only
+    performed when there are existing rows to migrate — i.e. a real user DB
+    from v0.2.0. A fresh DB that was just created by Base.metadata.create_all
+    (which still carries the v1 model shape at this milestone) will have zero
+    session rows; the migration stamps user_version = 2 without restructuring
+    the table so the v1 ORM model continues to work until Task 5 updates it."""
     with engine.begin() as conn:
         version = conn.execute(text("PRAGMA user_version")).scalar() or 0
         if version >= TARGET_VERSION:
@@ -49,6 +56,18 @@ def migrate_v1_to_v2(engine: Engine) -> None:
             conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
             return
 
+        # Count existing rows. If zero, this is a fresh DB — no data to
+        # migrate. Skip structural changes so the v1 ORM model (still in
+        # place until Task 5) continues to work against the same table shape.
+        row_count = conn.execute(text("SELECT COUNT(*) FROM session")).scalar() or 0
+
+        if row_count == 0:
+            # Nothing to migrate; just mark the DB as current.
+            conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
+            return
+
+        # --- Real v0.2.0 user DB: migrate data then restructure schema. ---
+
         # Add the new column if not present yet.
         if not has_new_json:
             conn.execute(text("ALTER TABLE session ADD COLUMN ratings_json TEXT"))
@@ -66,12 +85,38 @@ def migrate_v1_to_v2(engine: Engine) -> None:
                 {"j": json.dumps(dict(sorted(merged.items()))), "i": sid},
             )
 
-        # Drop the obsolete columns. SQLite 3.35+ supports ALTER TABLE DROP
-        # COLUMN; SQLCipher 4.x ships with SQLite >= 3.35.
-        if has_overall_score:
-            conn.execute(text("ALTER TABLE session DROP COLUMN overall_score"))
-        if has_old_json:
-            conn.execute(text("ALTER TABLE session DROP COLUMN custom_ratings_json"))
+        # Drop the obsolete columns.
+        #
+        # SQLite 3.35+ supports ALTER TABLE DROP COLUMN, but it refuses to drop
+        # a column that is still referenced by a CHECK constraint (even if that
+        # constraint is being dropped together with the column). The 'session'
+        # table in v0.2.0 carried a named CHECK on overall_score, so we use the
+        # "rename → recreate → copy → drop" approach instead — safe on all
+        # SQLite/SQLCipher versions and avoids the constraint check.
+        if has_overall_score or has_old_json:
+            conn.execute(text("ALTER TABLE session RENAME TO _session_old"))
+            conn.execute(text("""
+                CREATE TABLE session (
+                    id          VARCHAR NOT NULL,
+                    person_id   VARCHAR NOT NULL
+                                REFERENCES person (id) ON DELETE CASCADE,
+                    session_date TEXT    NOT NULL,
+                    ratings_json TEXT,
+                    notes        TEXT,
+                    created_at   TEXT    NOT NULL,
+                    updated_at   TEXT    NOT NULL,
+                    PRIMARY KEY (id)
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO session
+                    (id, person_id, session_date, ratings_json, notes,
+                     created_at, updated_at)
+                SELECT id, person_id, session_date, ratings_json, notes,
+                       created_at, updated_at
+                FROM _session_old
+            """))
+            conn.execute(text("DROP TABLE _session_old"))
 
         conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
 

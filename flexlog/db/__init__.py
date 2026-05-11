@@ -97,7 +97,9 @@ def attach_engine_at_runtime(app: Flask, engine: Engine,
 
     Dispose any existing engine first (closes its pooled connections).
     Assumes `register_db_teardown(app)` was already called at app-factory
-    time so per-request sessions get closed by Flask's teardown hook."""
+    time so per-request sessions get closed by Flask's teardown hook.
+    After attaching, runs any pending schema migrations on the new engine
+    so post-login code never observes a stale schema."""
     old = app.config.get(_ENGINE_KEY)
     if old is not None and old is not engine:
         try:
@@ -106,6 +108,13 @@ def attach_engine_at_runtime(app: Flask, engine: Engine,
             pass
     app.config[_ENGINE_KEY] = engine
     app.config[_FACTORY_KEY] = session_factory
+
+    # Local import — flexlog.migrations imports SQLAlchemy at module top,
+    # which is fine, but the migration module imports `text` which is already
+    # imported here. Keeping the import local makes the dependency direction
+    # one-way (db doesn't depend on migrations at import time).
+    from flexlog.migrations.v1_to_v2 import migrate_to_latest
+    migrate_to_latest(engine)
 
 
 def get_db() -> Session:

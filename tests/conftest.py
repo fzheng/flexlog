@@ -63,6 +63,7 @@ def _bootstrap_encrypted_dir(tmp_path: Path) -> bytes:
 
     # Build the encrypted DB with schema + auth row
     from flexlog.db import Base, make_engine, make_session_factory
+    import flexlog.db.models as _models  # noqa: F401 — registers ORM tables with Base
     sqlcipher_key = hkdf_subkey(master_key, b"flexlog/sqlcipher/v1", 32).hex()
     db_path = tmp_path / "data" / "encounters.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
