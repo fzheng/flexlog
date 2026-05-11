@@ -1,0 +1,26 @@
+<form method="post" action="{{ url_for('settings.save_app') }}" class="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="form-row">
+    <label for="app_name">App name</label>
+    <input id="app_name" type="text" name="name" value="{{ config_dict.app.name }}" required>
+  </div>
+  <div class="form-row">
+    <label for="app_es">Entity (singular)</label>
+    <input id="app_es" type="text" name="entity_singular" value="{{ config_dict.app.entity_singular }}" required>
+  </div>
+  <div class="form-row">
+    <label for="app_ep">Entity (plural)</label>
+    <input id="app_ep" type="text" name="entity_plural" value="{{ config_dict.app.entity_plural }}" required>
+  </div>
+  <div class="form-row">
+    <label for="app_ss">Session (singular)</label>
+    <input id="app_ss" type="text" name="session_singular" value="{{ config_dict.app.session_singular }}" required>
+  </div>
+  <div class="form-row">
+    <label for="app_sp">Session (plural)</label>
+    <input id="app_sp" type="text" name="session_plural" value="{{ config_dict.app.session_plural }}" required>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>

@@ -5,20 +5,43 @@
 {% block content %}
 <section class="settings-page">
   <h2>{{ "settings" | ui }}</h2>
-  <dl>
-    <dt>{{ "config_path_label" | ui }}</dt>
-    <dd>{{ config_path }}</dd>
-    <dt>{{ "config_loaded_at_label" | ui }}</dt>
-    <dd>{{ loaded_at.strftime("%Y-%m-%d %H:%M:%S UTC") if loaded_at else "—" }}</dd>
-  </dl>
+
+  {% if errors %}
+  <div class="settings-errors">
+    <p><strong>Could not save:</strong></p>
+    <ul>{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <nav class="settings-tabs">
+    <a id="settings-tab-app" href="{{ url_for('settings.index', tab='app') }}" {% if tab == 'app' %}class="active"{% endif %}>App</a>
+    <a id="settings-tab-ratings" href="{{ url_for('settings.index', tab='ratings') }}" {% if tab == 'ratings' %}class="active"{% endif %}>Ratings</a>
+    <a id="settings-tab-ui_strings" href="{{ url_for('settings.index', tab='ui_strings') }}" {% if tab == 'ui_strings' %}class="active"{% endif %}>UI strings</a>
+    <a id="settings-tab-limits" href="{{ url_for('settings.index', tab='limits') }}" {% if tab == 'limits' %}class="active"{% endif %}>Limits</a>
+    <a id="settings-tab-raw" href="{{ url_for('settings.index', tab='raw') }}" {% if tab == 'raw' %}class="active"{% endif %}>Raw JSON</a>
+  </nav>
+
+  <div class="settings-tab-content">
+    {% if tab == 'app' %}{% include "settings/_app.html" %}
+    {% elif tab == 'ratings' %}{% include "settings/_ratings.html" %}
+    {% elif tab == 'ui_strings' %}{% include "settings/_ui_strings.html" %}
+    {% elif tab == 'limits' %}{% include "settings/_limits.html" %}
+    {% elif tab == 'raw' %}{% include "settings/_raw.html" %}
+    {% endif %}
+  </div>
+</section>
+
+<section class="settings-page" style="margin-top:3rem">
+  <h3>{{ "config_path_label" | ui }}</h3>
+  <p><code>{{ config_path }}</code> · last loaded {{ loaded_at.strftime("%Y-%m-%d %H:%M:%S UTC") if loaded_at else "—" }}</p>
   <form method="post" action="{{ url_for('settings.reload') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn btn-primary">{{ "reload_config" | ui }}</button>
+    <button type="submit" class="btn">{{ "reload_config" | ui }}</button>
   </form>
 </section>
 
 <section class="settings-page" style="margin-top:3rem">
-  <h2>{{ "change_password_heading" | ui }}</h2>
+  <h3>{{ "change_password_heading" | ui }}</h3>
   <form method="post" action="{{ url_for('settings.change_password') }}" class="person-form" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="form-row">
@@ -38,4 +61,6 @@
     </div>
   </form>
 </section>
+
+<script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>
 {% endblock %}

@@ -1,17 +1,17 @@
-"""Settings page + runtime config reload.
+"""Settings page — GET renders the page with any tab; per-section POST
+handlers validate + persist atomically.
 
-GET  /settings         renders the page (path, last-loaded timestamp, button)
-POST /settings/reload  re-runs load_or_bootstrap and swaps app.config["FLEXLOG"]
-                       on success; flashes a validator error on failure.
-
-Single-process semantics are sufficient (PRD §13.5: single-user local-only).
-The single dict-key write to app.config["FLEXLOG"] is atomic under the GIL,
-so concurrent requests can never see a partially-applied config.
+Five tabs: app, ratings, ui_strings, limits, raw. Each tab is rendered
+in its own partial. The GET handler delegates to the partial based on
+?tab=<name>. POST handlers validate the merged config dict via
+validate_config_dict and write atomically (mode 0600 tmp + rename).
 """
-
 from __future__ import annotations
 
+import json
 import os
+import secrets
+from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 
 from flask import (
@@ -24,9 +24,15 @@ from flask import (
     request,
     url_for,
 )
+from sqlalchemy import select
 
 from flexlog import paths
-from flexlog.config_loader import ConfigError, load_or_bootstrap
+from flexlog.config_loader import (
+    ConfigError,
+    DEFAULT_CONFIG_JSON,
+    load_or_bootstrap,
+    validate_config_dict,
+)
 from flexlog.crypto import (
     ARGON2_DEFAULT_PARAMS,
     Argon2Params,
@@ -41,15 +47,118 @@ from flexlog.web.filters import ui_filter
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
 
 _PASSWORD_MIN_LEN = 8
+_VALID_TABS = ("app", "ratings", "ui_strings", "limits", "raw")
+
+
+def _config_as_dict() -> dict:
+    """Serialize the live Config dataclass back to a JSON-ready dict."""
+    cfg = current_app.config["FLEXLOG"]
+    return {
+        "schema_version": 2,
+        "app": asdict(cfg.app),
+        "ratings": [
+            {
+                "id": r.id, "label": r.label, "description": r.description,
+                "scale_min": r.scale_min, "scale_max": r.scale_max,
+                "enabled": r.enabled, "sortable": r.sortable,
+            }
+            for r in cfg.ratings
+        ],
+        "ui_strings": dict(cfg.ui_strings),
+        "limits": asdict(cfg.limits),
+    }
+
+
+def _atomic_write_config(merged: dict) -> None:
+    path = paths.config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name = f".{path.name}.tmp.{secrets.token_hex(8)}"
+    tmp = path.parent / tmp_name
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp), str(path))
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _in_use_rating_ids() -> set[str]:
+    """The set of rating ids that appear in any session.ratings_json. Used to
+    block rename/id-change conflicts."""
+    from flexlog.db import get_db
+    from flexlog.db.models import Session as SessionRow
+
+    db = get_db()
+    out: set[str] = set()
+    for (raw,) in db.execute(select(SessionRow.ratings_json)).all():
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(d, dict):
+            out.update(k for k in d.keys() if isinstance(k, str))
+    return out
+
+
+def _persist_and_swap(merged: dict, errors_redir_tab: str):
+    """Validate -> write -> swap live config. Returns a Flask response on
+    failure (re-render with errors) or None on success."""
+    cfg, errors = validate_config_dict(merged)
+    if errors:
+        return render_template(
+            "settings/index.html",
+            tab=errors_redir_tab,
+            config_dict=merged,
+            errors=errors,
+            in_use_ids=_in_use_rating_ids(),
+            config_path=str(paths.config_path()),
+            loaded_at=current_app.config.get("FLEXLOG_LOADED_AT"),
+        ), 400
+    _atomic_write_config(merged)
+    current_app.config["FLEXLOG"] = cfg
+    current_app.config["FLEXLOG_LOADED_AT"] = datetime.now(timezone.utc)
+    flash("Settings saved.", "success")
+    return None
 
 
 @settings_bp.get("")
 def index():
+    tab = request.args.get("tab", "app")
+    if tab not in _VALID_TABS:
+        tab = "app"
     return render_template(
         "settings/index.html",
+        tab=tab,
+        config_dict=_config_as_dict(),
+        errors=[],
+        in_use_ids=_in_use_rating_ids(),
         config_path=str(paths.config_path()),
         loaded_at=current_app.config.get("FLEXLOG_LOADED_AT"),
     )
+
+
+@settings_bp.post("/app")
+def save_app():
+    merged = _config_as_dict()
+    merged["app"] = {
+        "name": (request.form.get("name") or "").strip(),
+        "entity_singular": (request.form.get("entity_singular") or "").strip(),
+        "entity_plural": (request.form.get("entity_plural") or "").strip(),
+        "session_singular": (request.form.get("session_singular") or "").strip(),
+        "session_plural": (request.form.get("session_plural") or "").strip(),
+    }
+    result = _persist_and_swap(merged, errors_redir_tab="app")
+    if result is not None:
+        return result
+    return redirect(url_for("settings.index", tab="app"), code=303)
 
 
 @settings_bp.post("/reload")
@@ -59,7 +168,6 @@ def reload():
     except ConfigError as exc:
         flash(f"{ui_filter('config_reload_failed')}: {exc}", "error")
         return redirect(url_for("settings.index"), code=303)
-
     current_app.config["FLEXLOG"] = new_cfg
     current_app.config["FLEXLOG_LOADED_AT"] = datetime.now(timezone.utc)
     flash(ui_filter("config_reload_succeeded"), "success")
