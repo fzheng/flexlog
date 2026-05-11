@@ -27,3 +27,5 @@ flexlog-data/
 # under docs/superpowers/ that are already tracked are NOT removed by this
 # entry — see git rm --cached if you want to stop tracking them.
 docs/superpowers/
+
+.superpowers/
