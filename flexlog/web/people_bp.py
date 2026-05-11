@@ -18,7 +18,7 @@ from flask import (
 from werkzeug.datastructures import FileStorage
 
 from flexlog.db import get_db
-from flexlog.services.media import upload_to_media_file
+from flexlog.services.media import MediaUploadError, upload_to_media_file
 from flexlog.services.people import (
     PersonNotFoundError,
     create_person,
@@ -86,7 +86,12 @@ def create():
     avatar_media_id = None
     fs = _avatar_from_dataurl(form.avatar_blob.data or "")
     if fs is not None:
-        mf = upload_to_media_file(db, fs)
+        try:
+            mf = upload_to_media_file(db, fs)
+        except MediaUploadError as exc:
+            db.rollback()
+            flash(f"Avatar upload failed: {exc}", "error")
+            return render_template("people/new.html", form=form), 400
         avatar_media_id = mf.id
     person = create_person(
         db,
@@ -119,7 +124,12 @@ def update(person_id: str):
     avatar_kw: dict = {}
     fs = _avatar_from_dataurl(form.avatar_blob.data or "")
     if fs is not None:
-        mf = upload_to_media_file(db, fs)
+        try:
+            mf = upload_to_media_file(db, fs)
+        except MediaUploadError as exc:
+            db.rollback()
+            flash(f"Avatar upload failed: {exc}", "error")
+            return render_template("people/edit.html", form=form, person=person), 400
         avatar_kw["avatar_media_id"] = mf.id
     elif form.clear_avatar.data:
         avatar_kw["avatar_media_id"] = None

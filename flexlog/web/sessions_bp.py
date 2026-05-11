@@ -14,6 +14,7 @@ from flask import (
 
 from flexlog.db import get_db
 from flexlog.db.models import SessionLink
+from flexlog.services.media import MediaUploadError
 from flexlog.services.people import get_person
 from flexlog.services.sessions import (
     SessionNotFoundError,
@@ -116,17 +117,35 @@ def create(person_id: str):
             existing_media=[],
         ), 400
     db = get_db()
-    session_row = create_session(
-        db,
-        person_id=person.id,
-        session_date=form.session_date.data,
-        overall_score=form.overall_score.data,
-        custom_ratings=_parse_custom_ratings_from_request(),
-        notes=(form.notes.data or None),
-        links=_parse_links_from_request(),
-        media_uploads=_gather_uploads(),
-        link_thumbnails=_gather_link_thumbnails(),
-    )
+    try:
+        session_row = create_session(
+            db,
+            person_id=person.id,
+            session_date=form.session_date.data,
+            overall_score=form.overall_score.data,
+            custom_ratings=_parse_custom_ratings_from_request(),
+            notes=(form.notes.data or None),
+            links=_parse_links_from_request(),
+            media_uploads=_gather_uploads(),
+            link_thumbnails=_gather_link_thumbnails(),
+        )
+    except MediaUploadError as exc:
+        # File too big, bad MIME, magic-byte mismatch, etc. Re-render the
+        # form with the user's text data preserved so they don't have to
+        # retype notes/score/links — but file inputs reset (browsers
+        # don't repopulate them across a POST, and we'd need the file
+        # bytes on the server, which we no longer have).
+        db.rollback()
+        flash(str(exc), "error")
+        return render_template(
+            "sessions/new.html",
+            form=form,
+            person=person,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_custom_ratings_from_request(),
+            existing_links=_parse_links_from_request(),
+            existing_media=[],
+        ), 400
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_row.id))
 
@@ -223,6 +242,19 @@ def update(session_id: str):
         )
     except SessionNotFoundError:
         abort(404)
+    except MediaUploadError as exc:
+        db.rollback()
+        flash(str(exc), "error")
+        return render_template(
+            "sessions/edit.html",
+            form=form,
+            person=s.person,
+            session=s,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_custom_ratings_from_request(),
+            existing_links=_parse_links_from_request(),
+            existing_media=list(s.media_joins),
+        ), 400
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_id))
 
