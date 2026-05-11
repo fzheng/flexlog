@@ -10,8 +10,8 @@ from __future__ import annotations
 import re
 
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, HiddenField, IntegerField, StringField, TextAreaField
-from wtforms.validators import DataRequired, Length, NumberRange, Optional, Regexp, ValidationError
+from wtforms import BooleanField, HiddenField, StringField, TextAreaField
+from wtforms.validators import DataRequired, Length, Optional, Regexp, ValidationError
 
 ALIAS_MAX = 200
 TAGS_MAX = 1000  # comma-separated free text
@@ -56,13 +56,6 @@ class SessionForm(FlaskForm):
         validators=[
             DataRequired(message="session_date is required"),
             Regexp(_DATE_RE, message="session_date must be ISO YYYY-MM-DD"),
-        ],
-    )
-    overall_score = IntegerField(
-        "overall_score",
-        validators=[
-            DataRequired(message="overall_score is required"),
-            NumberRange(min=0, max=5, message="overall_score must be 0..5"),
         ],
     )
     notes = TextAreaField(

@@ -188,7 +188,6 @@ def list_dashboard_rows(
             Person,
             func.count(SessionRow.id).label("session_count"),
             func.max(SessionRow.session_date).label("last_session_date"),
-            func.avg(SessionRow.overall_score).label("avg_overall_score"),
         )
         .outerjoin(SessionRow, SessionRow.person_id == Person.id)
         .group_by(Person.id)
@@ -210,18 +209,78 @@ def list_dashboard_rows(
         )
         base = base.where(or_(Person.alias.ilike(like), exists(tag_match)))
 
+    # avg_overall_score is computed Python-side from ratings_json — there is
+    # no longer a dedicated SQL column. We average the first sortable enabled
+    # rating dimension across each person's sessions; legacy `overall_score`
+    # JSON keys (left by the v1→v2 migration) are also picked up so dashboards
+    # of pre-migration data keep showing a number.
+    avg_key = _dashboard_avg_rating_id()
+    per_person_scores = _ratings_dim_averages(session, avg_key, fallback="overall_score")
+
     rows: list[DashboardRow] = []
-    for person, count, last_date, avg_score in session.execute(base).all():
+    for person, count, last_date in session.execute(base).all():
         rows.append(
             DashboardRow(
                 person=person,
                 session_count=int(count or 0),
                 last_session_date=last_date,
-                avg_overall_score=float(avg_score) if avg_score is not None else None,
+                avg_overall_score=per_person_scores.get(person.id),
             )
         )
 
     return _sort_rows(session, rows, sort)
+
+
+def _dashboard_avg_rating_id() -> str:
+    """Pick the rating-dim id used for the dashboard 'avg_score' column.
+
+    First sortable+enabled rating dimension in config. Falls back to
+    'overall_score' (the legacy key the v1→v2 migration writes) if no
+    sortable dim is configured."""
+    try:
+        from flask import current_app
+        cfg = current_app.config["FLEXLOG"]
+        for r in cfg.ratings:
+            if r.enabled and getattr(r, "sortable", True):
+                return r.id
+    except Exception:
+        pass
+    return "overall_score"
+
+
+def _ratings_dim_averages(
+    session: Session, dim_id: str, fallback: str | None = None,
+) -> dict[str, float]:
+    """Average the named rating across each person's sessions, reading the
+    ratings_json column Python-side. Sessions missing the dim contribute
+    nothing. If `fallback` is given and `dim_id` is missing on a row, the
+    fallback key is consulted before giving up on that row.
+    """
+    import json
+    rows = session.execute(
+        select(SessionRow.person_id, SessionRow.ratings_json)
+    ).all()
+    sums: dict[str, list[float]] = {}
+    for person_id, raw in rows:
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        v = data.get(dim_id)
+        if v is None and fallback is not None:
+            v = data.get(fallback)
+        if v is None:
+            continue
+        try:
+            num = float(v)
+        except (TypeError, ValueError):
+            continue
+        sums.setdefault(person_id, []).append(num)
+    return {pid: sum(vs) / len(vs) for pid, vs in sums.items() if vs}
 
 
 def _sort_rows(
@@ -268,28 +327,7 @@ def _neg_str(s: str | None) -> str:
 def _custom_dim_averages(session: Session, dim_id: str) -> dict[str, float]:
     """Return {person_id: avg_for_dim} across all sessions, ignoring sessions
     that don't carry that dimension. Pure Python — bounded at single-user
-    scale (≤300 people, a few thousand sessions total).
+    scale (≤300 people, a few thousand sessions total). Reads ratings_json
+    (post-v2; the old custom_ratings_json column is gone).
     """
-    import json
-    rows = session.execute(
-        select(SessionRow.person_id, SessionRow.custom_ratings_json)
-    ).all()
-    sums: dict[str, list[float]] = {}
-    for person_id, raw in rows:
-        if not raw:
-            continue
-        try:
-            data = json.loads(raw)
-        except Exception:
-            continue
-        if not isinstance(data, dict):
-            continue
-        v = data.get(dim_id)
-        if v is None:
-            continue
-        try:
-            num = float(v)
-        except (TypeError, ValueError):
-            continue
-        sums.setdefault(person_id, []).append(num)
-    return {pid: sum(vs) / len(vs) for pid, vs in sums.items() if vs}
+    return _ratings_dim_averages(session, dim_id)

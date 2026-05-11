@@ -127,10 +127,8 @@ def test_session_create_ignores_non_integer_rating(authed_client, db_session):
         f"/people/{p.id}/sessions",
         data={
             "session_date": "2026-05-09",
-            "overall_score": 3,
             "notes": "",
-            "rating_overall_quality": "not-an-integer",
-            "rating_clarity": "5",
+            "rating_energy": "not-an-integer",
         },
     )
     assert resp.status_code in (302, 303)
@@ -147,10 +145,9 @@ def test_session_create_ignores_out_of_range_rating(authed_client, db_session):
         f"/people/{p.id}/sessions",
         data={
             "session_date": "2026-05-09",
-            "overall_score": 3,
             "notes": "",
-            # overall_quality scale is 0–5; 99 is OOB
-            "rating_overall_quality": "99",
+            # energy scale is 0–5; 99 is OOB
+            "rating_energy": "99",
         },
     )
     assert resp.status_code in (302, 303)
@@ -197,34 +194,19 @@ def test_create_app_no_longer_requires_admin_hash(monkeypatch, tmp_path):
 # ---------------------------------------------------------- Session links cleanup
 
 def test_session_links_partial_thumbnail_index_out_of_range(authed_client, db_session, tmp_path):
-    """If link_thumbnails has more entries than session.links, extras are
-    silently dropped (defensive bound check). Exercises the
-    `if i >= len(session_row.links): continue` branch in
-    services/sessions.create_session."""
+    """Empty link rows are silently dropped by the form parser. The thumbnail
+    upload branch that used to back this test was removed in M6 Task 5; it
+    returns in Task 9. For now we only assert that posting a mix of one valid
+    URL and one blank URL still creates a session with a single link."""
     from flexlog.services.people import create_person
     p = create_person(db_session, alias="ThumbBound", tag_input="")
     db_session.commit()
-    # Submit a session with 1 link but post 3 link_thumbnail file slots
-    # (the form layout always has the parallel array; empty slots already
-    # short-circuit upstream — this test exercises the i >= len() guard).
-    import io
-    jpg = bytes.fromhex(
-        "ffd8ffe000104a46494600010100000100010000ffdb0043000302020203020203030303040303040504080605050505"
-        "0a070706080c0a0c0c0b0a0b0b0d0e12100d0e110e0b0b1016101113141515150c0f171816141812141514ffc0000b0801"
-        "00010101011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b51000020103"
-        "030204030505040400000177000102031104052131410613516107227114328191a1b1c10923334252f0156272d10a162434"
-        "e125f11718191a262728292a35363738393a434445464748494a535455565758595a636465666768696a737475767778797a"
-        "82838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6"
-        "d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda0008010100003f00fbf3ffd9"
-    )
     resp = authed_client.post(
         f"/people/{p.id}/sessions",
         data={
             "session_date": "2026-05-09",
-            "overall_score": 3,
             "notes": "",
-            "link_url":   ["https://a.example", ""],   # one real link, one empty (filtered out)
-            "link_label": ["", ""],
+            "link_urls": ["https://a.example", ""],
         },
         content_type="multipart/form-data",
     )

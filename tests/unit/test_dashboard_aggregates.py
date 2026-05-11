@@ -24,9 +24,9 @@ def test_dashboard_rows_person_with_no_sessions(db_session):
 def test_dashboard_rows_aggregates(db_session):
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-03-01", overall_score=4, custom_ratings={}, notes=None, links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=5, custom_ratings={}, notes=None, links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-02-10", overall_score=3, custom_ratings={}, notes=None, links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-03-01", ratings={"energy": 4}, notes=None, link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-15", ratings={"energy": 5}, notes=None, link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-02-10", ratings={"energy": 3}, notes=None, link_urls=[])
     db_session.commit()
 
     rows = list_dashboard_rows(db_session, query="")
@@ -67,8 +67,8 @@ def test_dashboard_rows_does_not_double_count_with_tags(db_session):
     """A person with multiple tags must appear once with correct aggregates."""
     p = create_person(db_session, alias="Alice", tag_input="Engineer, Friend, Coach")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes=None, links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-05-01", overall_score=5, custom_ratings={}, notes=None, links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-15", ratings={"energy": 4}, notes=None, link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-05-01", ratings={"energy": 5}, notes=None, link_urls=[])
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="")
     assert len(rows) == 1

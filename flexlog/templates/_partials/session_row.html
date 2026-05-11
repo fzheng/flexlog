@@ -3,7 +3,6 @@
   <a class="session-row-link" href="{{ url_for('sessions.detail', session_id=session.id) }}">
     <header class="session-row-head">
       <time datetime="{{ session.session_date }}">{{ session.session_date }}</time>
-      <span class="session-score">★ {{ session.overall_score }}/5</span>
     </header>
     {% if session.notes %}
     <p class="session-notes-preview">{{ session.notes | notes_preview }}</p>

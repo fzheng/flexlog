@@ -31,7 +31,7 @@ def session(tmp_path):
 def _setup_session(s, link_thumbnail_id=None):
     p = Person(id="p1", alias="Alice")
     s.add(p)
-    sess = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=4)
+    sess = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     s.add(sess)
     if link_thumbnail_id is not None:
         s.add(SessionLink(id="l1", session_id="s1", url="https://example.com", thumbnail_media_id=link_thumbnail_id))

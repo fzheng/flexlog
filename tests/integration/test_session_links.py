@@ -8,10 +8,9 @@ def _make(db_session, links):
         db_session,
         person_id=p.id,
         session_date="2026-04-15",
-        overall_score=4,
-        custom_ratings={},
+        ratings={"energy": 4},
         notes=None,
-        links=links,
+        link_urls=links,
     )
     db_session.commit()
     return p, s
@@ -20,7 +19,7 @@ def _make(db_session, links):
 def test_delete_link_removes_only_that_row(authed_client, db_session):
     from flexlog.db.models import SessionLink
 
-    p, s = _make(db_session, [{"url": "https://a.com", "label": "A"}, {"url": "https://b.com", "label": "B"}])
+    p, s = _make(db_session, ["https://a.com", "https://b.com"])
     target = [li for li in s.links if li.url == "https://a.com"][0]
     other_id = [li.id for li in s.links if li.url == "https://b.com"][0]
 

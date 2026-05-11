@@ -1,6 +1,14 @@
 import io
 
+import pytest
 from werkzeug.datastructures import FileStorage
+
+# Session-route media uploads were removed in M6 Task 5 (the route handlers
+# no longer call upload_to_media_file). They will be re-introduced in Task 9
+# via a dedicated upload endpoint. Skip the file until then.
+pytestmark = pytest.mark.skip(
+    reason="Session-route media uploads removed in M6 Task 5; restored in Task 9."
+)
 
 
 JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100

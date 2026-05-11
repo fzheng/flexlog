@@ -4,12 +4,6 @@
   {% for err in form.session_date.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
 </div>
 
-<div class="form-row">
-  <label for="overall_score">{{ "overall_score_label" | ui }}</label>
-  <input type="number" id="overall_score" name="overall_score" min="0" max="5" step="1" value="{{ form.overall_score.data if form.overall_score.data is not none else '' }}" required>
-  {% for err in form.overall_score.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
-</div>
-
 {% if rating_dimensions %}
 <fieldset class="form-row ratings-grid">
   <legend>{{ "custom_ratings_heading" | ui }}</legend>
@@ -30,54 +24,20 @@
   {% for err in form.notes.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
 </div>
 
-{# Existing media (only on edit; new is empty) #}
-{% if existing_media %}
-<fieldset class="form-row existing-media">
-  <legend>Attached media</legend>
-  <ul class="existing-media-list">
-    {% for sm in existing_media %}
-      <li>
-        <label>
-          <input type="checkbox" name="remove_session_media" value="{{ sm.id }}">
-          Remove
-        </label>
-        <span>{{ sm.media_file.original_filename or sm.media_file.file_key }} ({{ sm.media_file.media_type }})</span>
-      </li>
-    {% endfor %}
-  </ul>
-</fieldset>
-{% endif %}
-
-{# Add new media #}
-<fieldset class="form-row media-uploads">
-  <legend>{{ "add_media" | ui }}</legend>
-  <div class="form-row">
-    <label for="photos">{{ "photos_label" | ui }}</label>
-    <input type="file" id="photos" name="photos" multiple accept="image/jpeg,image/png,image/webp">
-  </div>
-  <div class="form-row">
-    <label for="audios">{{ "audio_label" | ui }}</label>
-    <input type="file" id="audios" name="audios" multiple accept="audio/mpeg,audio/wav,audio/mp4,audio/x-m4a">
-  </div>
-  <div class="form-row">
-    <label for="videos">{{ "videos_label" | ui }}</label>
-    <input type="file" id="videos" name="videos" multiple accept="video/mp4,video/webm,video/quicktime">
-  </div>
-</fieldset>
-
 <fieldset class="form-row links-row">
   <legend>{{ "links_heading" | ui }}</legend>
   <div id="link-rows" data-link-rows>
-    {% for link in existing_links %}
-      {% with index = loop.index0, url = link.url, label = link.label, link_id = link.get('id', ''), link = link %}
-        {% include "_partials/link_row_form.html" %}
-      {% endwith %}
+    {% for url in existing_link_urls %}
+      <div class="link-row" data-link-row>
+        <input type="url" name="link_urls" placeholder="https://..." value="{{ url }}" autocomplete="off">
+        <button type="button" class="btn btn-link" data-remove-link>{{ "remove_link" | ui }}</button>
+      </div>
     {% endfor %}
-    {# Always render at least one empty row #}
-    {% if not existing_links %}
-      {% with index = 0, url = '', label = '', link_id = '', link = none %}
-        {% include "_partials/link_row_form.html" %}
-      {% endwith %}
+    {% if not existing_link_urls %}
+      <div class="link-row" data-link-row>
+        <input type="url" name="link_urls" placeholder="https://..." value="" autocomplete="off">
+        <button type="button" class="btn btn-link" data-remove-link>{{ "remove_link" | ui }}</button>
+      </div>
     {% endif %}
   </div>
   <button type="button" id="add-link-row" class="btn">{{ "add_link" | ui }}</button>

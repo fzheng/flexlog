@@ -66,7 +66,7 @@ def test_delete_person_with_wrong_alias_still_shows_session_list(authed_client, 
 
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes="kept", links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-15", ratings={"energy": 4}, notes="kept", link_urls=[])
     db_session.commit()
 
     resp = authed_client.post(f"/people/{p.id}/delete", data={"confirm_alias": "WRONG"})

@@ -70,6 +70,10 @@ def _bootstrap_encrypted_dir(tmp_path: Path) -> bytes:
     engine = make_engine(db_path, sqlcipher_key)
     Base.metadata.create_all(engine)
     from sqlalchemy import text
+    # Stamp the user_version so the v1→v2 migration is a no-op on the
+    # fresh v2-shaped fixture DB.
+    with engine.begin() as conn:
+        conn.execute(text("PRAGMA user_version = 2"))
     import secrets
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()

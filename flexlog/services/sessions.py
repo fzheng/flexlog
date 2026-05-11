@@ -1,14 +1,12 @@
-"""Session CRUD + custom-rating split.
+"""Session CRUD + rating split.
 
-Sessions belong to a person and carry an overall_score (required, 0..5),
-optional notes, optional custom-rating values (stored as a JSON object on
-the row so the schema doesn't churn when the user adds/removes rating
-dimensions in config.json), and zero or more SessionLinks (URL + optional
-label; each link can also carry an optional thumbnail MediaFile reference).
+Sessions belong to a person and carry optional notes, a unified
+ratings dict (stored as JSON keyed by rating-dimension id, validated
+against config at write time), and zero or more SessionLinks.
 
-split_custom_ratings() is the read-side helper: given the stored JSON and
-the currently enabled rating IDs from config, it returns (current_pairs,
-archived_pairs) for the template to render.
+split_ratings() is the read-side helper: given the stored JSON and
+the currently enabled rating IDs from config, it returns
+(current_pairs, archived_pairs) for the template to render.
 """
 
 from __future__ import annotations
@@ -36,42 +34,31 @@ class SessionNotFoundError(LookupError):
     """Raised by update/delete when the target session id does not exist."""
 
 
-def _validate_inputs(person: Person | None, session_date: str, overall_score: int) -> None:
+def _validate_inputs(person: Person | None, session_date: str) -> None:
     if person is None:
         raise ValueError("person not found for the given person_id")
     if not isinstance(session_date, str) or not _DATE_RE.match(session_date):
         raise ValueError(f"session_date must be ISO YYYY-MM-DD, got {session_date!r}")
-    if not isinstance(overall_score, int) or not (0 <= overall_score <= 5):
-        raise ValueError(f"overall_score must be an integer 0..5, got {overall_score!r}")
 
 
-def _serialize_ratings(custom_ratings: dict[str, int]) -> str:
-    """Coerce the dict into a deterministic JSON string."""
-    return json.dumps(dict(sorted(custom_ratings.items())))
+def _serialize_ratings(ratings: dict[str, int]) -> str:
+    """Deterministic JSON-string serialization of the ratings dict."""
+    return json.dumps(dict(sorted(ratings.items())))
 
 
 def _replace_links(
     db: Session,
     session_row: SessionRow,
-    links: list[dict],
+    urls: list[str],
     preserve_thumbnails: list[str | None] | None = None,
 ) -> None:
-    """Drop existing links and recreate from `links` (rows with URL+label).
-
-    Empty/whitespace URLs are silently dropped — accommodates form submission
-    of empty rows from the link manager.
-
-    `preserve_thumbnails` is an optional parallel list of thumbnail_media_id
-    values to restore on the new links (after thumbnail-clear filtering is
-    applied by the caller).
-    """
+    """Drop existing links and recreate from the URL list."""
     session_row.links = []
     new_link_index = 0
-    for i, link in enumerate(links):
-        url = (link.get("url") or "").strip()
+    for i, raw in enumerate(urls):
+        url = (raw or "").strip()
         if not url:
             continue
-        label = (link.get("label") or "").strip() or None
         thumb_id: str | None = None
         if preserve_thumbnails is not None and new_link_index < len(preserve_thumbnails):
             thumb_id = preserve_thumbnails[new_link_index]
@@ -80,7 +67,7 @@ def _replace_links(
                 id=str(uuid.uuid4()),
                 session_id=session_row.id,
                 url=url,
-                label=label,
+                label=None,
                 sort_order=i,
                 thumbnail_media_id=thumb_id,
             )
@@ -92,49 +79,28 @@ def create_session(
     db: Session,
     person_id: str,
     session_date: str,
-    overall_score: int,
-    custom_ratings: dict[str, int],
+    ratings: dict[str, int],
     notes: str | None,
-    links: list[dict],
-    media_uploads: list | None = None,
-    link_thumbnails: list | None = None,
+    link_urls: list[str],
 ) -> SessionRow:
-    """Create a Session row + its links. Caller commits."""
+    """Create a Session row + its links. Caller commits.
+
+    Media linking is handled separately via link_media_to_session — this
+    function no longer accepts FileStorage uploads. Routes call the upload
+    endpoint to encrypt+store, then call this with the file_keys."""
     person = db.get(Person, person_id)
-    _validate_inputs(person, session_date, overall_score)
+    _validate_inputs(person, session_date)
 
     session_row = SessionRow(
         id=str(uuid.uuid4()),
         person_id=person_id,
         session_date=session_date,
-        overall_score=overall_score,
-        custom_ratings_json=_serialize_ratings(custom_ratings),
+        ratings_json=_serialize_ratings(ratings),
         notes=(notes or None) if (notes is None or notes.strip() == "") else notes,
     )
     db.add(session_row)
     db.flush()
-    _replace_links(db, session_row, links)
-
-    if media_uploads:
-        from flexlog.services.media import link_to_session, upload_to_media_file
-        next_sort = 0
-        for fs in media_uploads:
-            if fs is None or fs.filename == "":
-                continue
-            mf = upload_to_media_file(db, fs)
-            link_to_session(db, session_row.id, mf.id, sort_order=next_sort)
-            next_sort += 1
-
-    if link_thumbnails:
-        from flexlog.services.media import upload_to_media_file
-        for i, thumb_fs in enumerate(link_thumbnails):
-            if thumb_fs is None or thumb_fs.filename == "":
-                continue
-            if i >= len(session_row.links):
-                continue
-            mf = upload_to_media_file(db, thumb_fs)
-            session_row.links[i].thumbnail_media_id = mf.id
-
+    _replace_links(db, session_row, link_urls)
     return session_row
 
 
@@ -162,63 +128,20 @@ def update_session(
     db: Session,
     session_id: str,
     session_date: str,
-    overall_score: int,
-    custom_ratings: dict[str, int],
+    ratings: dict[str, int],
     notes: str | None,
-    links: list[dict],
-    media_uploads: list | None = None,
-    link_thumbnails: list | None = None,
-    remove_session_media_ids: list[str] | None = None,
-    clear_link_thumbnail_link_ids: list[str] | None = None,
+    link_urls: list[str],
 ) -> SessionRow:
     session_row = get_session(db, session_id)
     if session_row is None:
         raise SessionNotFoundError(session_id)
-    _validate_inputs(session_row.person, session_date, overall_score)
+    _validate_inputs(session_row.person, session_date)
     session_row.session_date = session_date
-    session_row.overall_score = overall_score
-    session_row.custom_ratings_json = _serialize_ratings(custom_ratings)
+    session_row.ratings_json = _serialize_ratings(ratings)
     session_row.notes = notes if (notes and notes.strip()) else None
 
-    # Capture thumbnail_media_ids from existing links (in URL order) before
-    # _replace_links wipes them. Apply clear_link_thumbnail_link_ids filtering
-    # so that cleared thumbs become None in the preserved list.
-    clear_ids: set[str] = set(clear_link_thumbnail_link_ids or [])
-    existing_thumbs: list[str | None] = []
-    for existing_link in session_row.links:
-        if existing_link.id in clear_ids:
-            existing_thumbs.append(None)
-        else:
-            existing_thumbs.append(existing_link.thumbnail_media_id)
-
-    _replace_links(db, session_row, links, preserve_thumbnails=existing_thumbs)
-
-    if remove_session_media_ids:
-        from flexlog.services.media import unlink_from_session
-        for sm_id in remove_session_media_ids:
-            unlink_from_session(db, sm_id)
-
-    if media_uploads:
-        from flexlog.services.media import link_to_session, upload_to_media_file
-        existing_max = max((sm.sort_order for sm in session_row.media_joins), default=-1)
-        next_sort = existing_max + 1
-        for fs in media_uploads:
-            if fs is None or fs.filename == "":
-                continue
-            mf = upload_to_media_file(db, fs)
-            link_to_session(db, session_id, mf.id, sort_order=next_sort)
-            next_sort += 1
-
-    if link_thumbnails:
-        from flexlog.services.media import upload_to_media_file
-        for i, thumb_fs in enumerate(link_thumbnails):
-            if thumb_fs is None or thumb_fs.filename == "":
-                continue
-            if i >= len(session_row.links):
-                continue
-            mf = upload_to_media_file(db, thumb_fs)
-            session_row.links[i].thumbnail_media_id = mf.id
-
+    existing_thumbs: list[str | None] = [li.thumbnail_media_id for li in session_row.links]
+    _replace_links(db, session_row, link_urls, preserve_thumbnails=existing_thumbs)
     return session_row
 
 
@@ -229,11 +152,11 @@ def delete_session(db: Session, session_id: str) -> None:
     db.delete(session_row)
 
 
-def split_custom_ratings(
+def split_ratings(
     stored_json: str | None,
     enabled_ids: list[str],
 ) -> tuple[list[tuple[str, int]], list[tuple[str, int]]]:
-    """Split stored ratings into (current, archived) per spec §6.4.
+    """Split stored ratings into (current, archived).
 
     `current` follows the order of `enabled_ids`; only IDs whose value is
     actually stored appear. `archived` is everything stored but absent
@@ -257,3 +180,7 @@ def split_custom_ratings(
         if rid not in enabled_set and isinstance(val, int):
             archived.append((rid, val))
     return current, archived
+
+
+# Backwards-compat alias used by older test files until they're updated.
+split_custom_ratings = split_ratings

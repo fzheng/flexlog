@@ -203,8 +203,8 @@ def test_list_dashboard_rows_sort_last_date_nulls_last(db_session):
     b = create_person(db_session, alias="B", tag_input="")
     c = create_person(db_session, alias="C", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=a.id, session_date="2026-01-15", overall_score=3, notes="", custom_ratings={}, links=[])
-    create_session(db_session, person_id=b.id, session_date="2026-03-10", overall_score=4, notes="", custom_ratings={}, links=[])
+    create_session(db_session, person_id=a.id, session_date="2026-01-15", ratings={"energy": 3}, notes="", link_urls=[])
+    create_session(db_session, person_id=b.id, session_date="2026-03-10", ratings={"energy": 4}, notes="", link_urls=[])
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="", sort="last_date")
     aliases = [r.person.alias for r in rows]
@@ -219,8 +219,8 @@ def test_list_dashboard_rows_sort_session_count(db_session):
     b = create_person(db_session, alias="B", tag_input="")
     db_session.commit()
     for d in ("2026-01-01", "2026-01-02", "2026-01-03"):
-        create_session(db_session, person_id=a.id, session_date=d, overall_score=3, notes="", custom_ratings={}, links=[])
-    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=3, notes="", custom_ratings={}, links=[])
+        create_session(db_session, person_id=a.id, session_date=d, ratings={"energy": 3}, notes="", link_urls=[])
+    create_session(db_session, person_id=b.id, session_date="2026-01-01", ratings={"energy": 3}, notes="", link_urls=[])
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="", sort="session_count")
     assert [r.person.alias for r in rows] == ["A", "B"]
@@ -233,8 +233,8 @@ def test_list_dashboard_rows_sort_avg_score_nulls_last(db_session):
     b = create_person(db_session, alias="B", tag_input="")
     c = create_person(db_session, alias="C", tag_input="")  # no sessions
     db_session.commit()
-    create_session(db_session, person_id=a.id, session_date="2026-01-01", overall_score=4, notes="", custom_ratings={}, links=[])
-    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=2, notes="", custom_ratings={}, links=[])
+    create_session(db_session, person_id=a.id, session_date="2026-01-01", ratings={"energy": 4}, notes="", link_urls=[])
+    create_session(db_session, person_id=b.id, session_date="2026-01-01", ratings={"energy": 2}, notes="", link_urls=[])
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="", sort="avg_score")
     assert [r.person.alias for r in rows] == ["A", "B", "C"]
@@ -271,7 +271,7 @@ def test_list_dashboard_rows_unknown_sort_falls_back_to_alias(db_session):
 
 
 def test_custom_dim_averages_skips_empty_json(db_session):
-    """Sessions with custom_ratings_json='' or NULL must be ignored by the
+    """Sessions with ratings_json='' or NULL must be ignored by the
     custom-dim averager — exercises the `if not raw: continue` branch."""
     from sqlalchemy import text
     from flexlog.services.people import _custom_dim_averages
@@ -279,12 +279,12 @@ def test_custom_dim_averages_skips_empty_json(db_session):
     p = create_person(db_session, alias="A", tag_input="")
     db_session.commit()
     s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
-                       overall_score=3, notes="", custom_ratings={}, links=[])
+                       ratings={}, notes="", link_urls=[])
     db_session.commit()
     # _serialize_ratings({}) returns "{}", which is truthy. Force the column
     # to literal NULL via raw SQL to exercise the `if not raw: continue` path.
     db_session.execute(
-        text("UPDATE session SET custom_ratings_json = NULL WHERE id = :sid"),
+        text("UPDATE session SET ratings_json = NULL WHERE id = :sid"),
         {"sid": s.id},
     )
     db_session.commit()
@@ -293,7 +293,7 @@ def test_custom_dim_averages_skips_empty_json(db_session):
 
 
 def test_custom_dim_averages_skips_invalid_json(db_session):
-    """If custom_ratings_json is malformed, the averager must skip the row,
+    """If ratings_json is malformed, the averager must skip the row,
     not crash. Exercises the json.loads except-branch."""
     from sqlalchemy import text
     from flexlog.services.people import _custom_dim_averages
@@ -301,12 +301,12 @@ def test_custom_dim_averages_skips_invalid_json(db_session):
     p = create_person(db_session, alias="A", tag_input="")
     db_session.commit()
     s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
-                       overall_score=3, notes="", custom_ratings={}, links=[])
+                       ratings={}, notes="", link_urls=[])
     db_session.commit()
     # Smash the JSON column to broken bytes via raw SQL so we don't have
     # to bypass services/sessions validation
     db_session.execute(
-        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        text("UPDATE session SET ratings_json = :raw WHERE id = :sid"),
         {"raw": "{{not json", "sid": s.id},
     )
     db_session.commit()
@@ -315,7 +315,7 @@ def test_custom_dim_averages_skips_invalid_json(db_session):
 
 
 def test_custom_dim_averages_skips_non_dict_json(db_session):
-    """If custom_ratings_json parses to a list / number / string, the
+    """If ratings_json parses to a list / number / string, the
     averager must skip the row. Exercises the isinstance(data, dict) branch."""
     from sqlalchemy import text
     from flexlog.services.people import _custom_dim_averages
@@ -323,10 +323,10 @@ def test_custom_dim_averages_skips_non_dict_json(db_session):
     p = create_person(db_session, alias="A", tag_input="")
     db_session.commit()
     s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
-                       overall_score=3, notes="", custom_ratings={}, links=[])
+                       ratings={}, notes="", link_urls=[])
     db_session.commit()
     db_session.execute(
-        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        text("UPDATE session SET ratings_json = :raw WHERE id = :sid"),
         {"raw": "[1, 2, 3]", "sid": s.id},
     )
     db_session.commit()
@@ -335,15 +335,14 @@ def test_custom_dim_averages_skips_non_dict_json(db_session):
 
 
 def test_custom_dim_averages_skips_missing_dim(db_session):
-    """If a session's custom_ratings dict is valid JSON but doesn't carry
+    """If a session's ratings dict is valid JSON but doesn't carry
     the requested dim_id, that session contributes nothing to the average."""
     from flexlog.services.people import _custom_dim_averages
     from flexlog.services.sessions import create_session
     p = create_person(db_session, alias="A", tag_input="")
     db_session.commit()
     create_session(db_session, person_id=p.id, session_date="2026-01-01",
-                   overall_score=3, notes="",
-                   custom_ratings={"other_dim": 4}, links=[])
+                   ratings={"other_dim": 4}, notes="", link_urls=[])
     db_session.commit()
     out = _custom_dim_averages(db_session, "missing_dim")
     assert out == {}
@@ -358,11 +357,11 @@ def test_custom_dim_averages_skips_non_numeric_value(db_session):
     p = create_person(db_session, alias="A", tag_input="")
     db_session.commit()
     s = create_session(db_session, person_id=p.id, session_date="2026-01-01",
-                       overall_score=3, notes="", custom_ratings={}, links=[])
+                       ratings={}, notes="", link_urls=[])
     db_session.commit()
     # Inject a string value directly into the JSON column
     db_session.execute(
-        text("UPDATE session SET custom_ratings_json = :raw WHERE id = :sid"),
+        text("UPDATE session SET ratings_json = :raw WHERE id = :sid"),
         {"raw": '{"my_dim": "not-a-number"}', "sid": s.id},
     )
     db_session.commit()
@@ -380,13 +379,13 @@ def test_list_dashboard_rows_sort_custom_dim_nulls_last(db_session):
     c = create_person(db_session, alias="C", tag_input="")  # no sessions at all
     db_session.commit()
     # A: avg of dim_x = (5 + 3) / 2 = 4.0
-    create_session(db_session, person_id=a.id, session_date="2026-01-01", overall_score=3,
-                   notes="", custom_ratings={"dim_x": 5}, links=[])
-    create_session(db_session, person_id=a.id, session_date="2026-01-02", overall_score=3,
-                   notes="", custom_ratings={"dim_x": 3}, links=[])
+    create_session(db_session, person_id=a.id, session_date="2026-01-01",
+                   ratings={"dim_x": 5}, notes="", link_urls=[])
+    create_session(db_session, person_id=a.id, session_date="2026-01-02",
+                   ratings={"dim_x": 3}, notes="", link_urls=[])
     # B: avg of dim_x = 5.0 (one session)
-    create_session(db_session, person_id=b.id, session_date="2026-01-01", overall_score=3,
-                   notes="", custom_ratings={"dim_x": 5}, links=[])
+    create_session(db_session, person_id=b.id, session_date="2026-01-01",
+                   ratings={"dim_x": 5}, notes="", link_urls=[])
     db_session.commit()
     rows = list_dashboard_rows(db_session, query="", sort="custom:dim_x")
     # B (5.0) > A (4.0) > C (no dim_x — sorts last)

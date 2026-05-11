@@ -15,6 +15,7 @@ from flexlog.config_loader import (
 
 def _valid_config_dict() -> dict:
     return {
+        "schema_version": 2,
         "app": {
             "name": "Interview Log",
             "entity_singular": "Guest",
@@ -162,8 +163,9 @@ def test_load_config_rating_id_slug_shape(tmp_path):
 
 
 def test_load_config_rating_scale_out_of_range(tmp_path):
+    # v2 relaxed scale_max to <= 100. 101 is now out of range.
     d = _valid_config_dict()
-    d["ratings"][0]["scale_max"] = 6
+    d["ratings"][0]["scale_max"] = 101
     p = _write(tmp_path, d)
     with pytest.raises(ConfigError, match="scale_max"):
         load_config(p)
@@ -373,4 +375,5 @@ def test_default_config_is_self_consistent(tmp_path):
     p.write_text(DEFAULT_CONFIG_JSON)
     cfg = load_config(p)
     assert cfg.app.name == "Interview Log"
-    assert any(r.id == "overall_quality" for r in cfg.ratings)
+    # v2 default ships "energy" as the single enabled rating dimension.
+    assert any(r.id == "energy" for r in cfg.ratings)

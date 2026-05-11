@@ -58,7 +58,7 @@ def test_orphan_filter_includes_only_unreferenced(app, db_session):
     # link the photo to a session
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    s = create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes=None, links=[])
+    s = create_session(db_session, person_id=p.id, session_date="2026-04-15", ratings={"energy": 4}, notes=None, link_urls=[])
     db_session.commit()
     from flexlog.services.media import link_to_session
     link_to_session(db_session, s.id, photo.id, sort_order=0)
@@ -73,8 +73,8 @@ def test_get_references_counts_session_media(app, db_session):
     photo = _upload(app, db_session, "a.jpg", JPEG_BYTES, "image/jpeg")
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    s1 = create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=3, custom_ratings={}, notes=None, links=[])
-    s2 = create_session(db_session, person_id=p.id, session_date="2026-05-01", overall_score=4, custom_ratings={}, notes=None, links=[])
+    s1 = create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={}, notes=None, link_urls=[])
+    s2 = create_session(db_session, person_id=p.id, session_date="2026-05-01", ratings={}, notes=None, link_urls=[])
     db_session.commit()
     from flexlog.services.media import link_to_session
     link_to_session(db_session, s1.id, photo.id)
@@ -101,9 +101,9 @@ def test_get_references_counts_link_thumbnail(app, db_session):
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
     s = create_session(
-        db_session, person_id=p.id, session_date="2026-04-01", overall_score=3,
-        custom_ratings={}, notes=None,
-        links=[{"url": "https://example.com", "label": "x"}],
+        db_session, person_id=p.id, session_date="2026-04-01",
+        ratings={}, notes=None,
+        link_urls=["https://example.com"],
     )
     db_session.commit()
     # set thumbnail manually
@@ -138,7 +138,7 @@ def test_hard_delete_cascades_session_media_and_nulls_avatar(app, db_session):
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
     p.avatar_media_id = photo.id
-    s = create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=3, custom_ratings={}, notes=None, links=[])
+    s = create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={}, notes=None, link_urls=[])
     db_session.commit()
     link_to_session(db_session, s.id, photo.id, sort_order=0)
     db_session.commit()

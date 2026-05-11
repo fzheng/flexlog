@@ -7,7 +7,6 @@
   <header class="session-detail-header">
     <p class="breadcrumb"><a href="{{ url_for('people.detail', person_id=person.id) }}">{{ person.alias }}</a></p>
     <h2>{{ session.session_date }}</h2>
-    <p class="session-detail-score">{{ "overall_score_label" | ui }}: <strong>{{ session.overall_score }}/5</strong></p>
     <div class="session-detail-actions">
       <a class="btn" href="{{ url_for('sessions.edit', session_id=session.id) }}">{{ "edit_session" | ui }}</a>
     </div>

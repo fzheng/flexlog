@@ -19,6 +19,7 @@ from flexlog.services.media import MediaUploadError
 
 # ----------------------------------------------------------- session create
 
+@pytest.mark.skip(reason="Session-route media uploads removed in M6 Task 5; restored in Task 9.")
 def test_session_create_renders_form_on_media_upload_error(
     authed_client, db_session, admin_password
 ):
@@ -54,6 +55,7 @@ def test_session_create_renders_form_on_media_upload_error(
     assert "These notes should survive the failed upload." in body
 
 
+@pytest.mark.skip(reason="Session-route media uploads removed in M6 Task 5; restored in Task 9.")
 def test_session_update_renders_form_on_media_upload_error(
     authed_client, db_session, admin_password
 ):
@@ -64,7 +66,7 @@ def test_session_update_renders_form_on_media_upload_error(
     db_session.commit()
     s = create_session(
         db_session, person_id=p.id, session_date="2026-05-09",
-        overall_score=3, notes="original notes", custom_ratings={}, links=[],
+        ratings={}, notes="original notes", link_urls=[],
     )
     db_session.commit()
 

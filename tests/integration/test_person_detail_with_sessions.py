@@ -14,9 +14,9 @@ def test_person_detail_lists_sessions_newest_first(authed_client, db_session):
 
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-03-01", overall_score=3, custom_ratings={}, notes="oldest", links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-05-01", overall_score=5, custom_ratings={}, notes="newest", links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=4, custom_ratings={}, notes="middle", links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-03-01", ratings={"energy": 3}, notes="oldest", link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-05-01", ratings={"energy": 5}, notes="newest", link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={"energy": 4}, notes="middle", link_urls=[])
     db_session.commit()
 
     resp = authed_client.get(f"/people/{p.id}")
@@ -39,7 +39,7 @@ def test_person_detail_session_card_links_to_session_detail(authed_client, db_se
 
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    s = create_session(db_session, person_id=p.id, session_date="2026-04-15", overall_score=4, custom_ratings={}, notes=None, links=[])
+    s = create_session(db_session, person_id=p.id, session_date="2026-04-15", ratings={"energy": 4}, notes=None, link_urls=[])
     db_session.commit()
     resp = authed_client.get(f"/people/{p.id}")
     assert f"/sessions/{s.id}" in resp.get_data(as_text=True)
@@ -52,9 +52,9 @@ def test_person_detail_session_card_link_count(authed_client, db_session):
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
     create_session(
-        db_session, person_id=p.id, session_date="2026-04-15", overall_score=4,
-        custom_ratings={}, notes=None,
-        links=[{"url": "https://a.com"}, {"url": "https://b.com"}],
+        db_session, person_id=p.id, session_date="2026-04-15",
+        ratings={"energy": 4}, notes=None,
+        link_urls=["https://a.com", "https://b.com"],
     )
     db_session.commit()
     resp = authed_client.get(f"/people/{p.id}")

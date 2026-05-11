@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint, func
+from sqlalchemy import ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from flexlog.db import Base
@@ -113,8 +113,7 @@ class Session(Base):
         String, ForeignKey("person.id", ondelete="CASCADE"), nullable=False
     )
     session_date: Mapped[str] = mapped_column(Text, nullable=False)  # YYYY-MM-DD
-    overall_score: Mapped[int] = mapped_column(nullable=False)
-    custom_ratings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ratings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_utcnow_iso)
     updated_at: Mapped[str] = mapped_column(
@@ -134,7 +133,6 @@ class Session(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("overall_score >= 0 AND overall_score <= 5", name="ck_session_overall_score"),
         Index("ix_session_person_date", "person_id", "session_date"),
     )
 

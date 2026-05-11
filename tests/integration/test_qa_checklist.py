@@ -164,10 +164,8 @@ def test_qa_12_multiple_links(authed_client, db_session):
         f"/people/{p.id}/sessions",
         data={
             "session_date": "2026-05-09",
-            "overall_score": 3,
             "notes": "",
-            "link_url": ["https://a.example", "https://b.example"],
-            "link_label": ["A", ""],
+            "link_urls": ["https://a.example", "https://b.example"],
         },
     )
     assert resp.status_code in (302, 303)
@@ -307,10 +305,9 @@ def test_qa_22_300_people_3000_sessions_acceptable(authed_client, db_session):
                 db_session,
                 person_id=p.id,
                 session_date=f"2026-{(j % 12) + 1:02d}-{(j % 27) + 1:02d}",
-                overall_score=(j % 5) + 1,
-                custom_ratings={},
+                ratings={"energy": (j % 5) + 1},
                 notes="",
-                links=[],
+                link_urls=[],
             )
     db_session.commit()
     t0 = time.time()

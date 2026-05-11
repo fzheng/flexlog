@@ -43,8 +43,7 @@ def test_can_insert_session(session):
         id="s1",
         person_id="p1",
         session_date="2026-04-15",
-        overall_score=4,
-        custom_ratings_json='{"clarity": 5}',
+        ratings_json='{"clarity": 5}',
         notes="Good chat.",
     )
     session.add(s)
@@ -53,32 +52,15 @@ def test_can_insert_session(session):
     assert got is not None
     assert got.person_id == "p1"
     assert got.session_date == "2026-04-15"
-    assert got.overall_score == 4
-    assert got.custom_ratings_json == '{"clarity": 5}'
+    assert got.ratings_json == '{"clarity": 5}'
     assert got.notes == "Good chat."
     assert got.created_at is not None
     assert got.updated_at is not None
 
 
-def test_session_overall_score_check_constraint(session):
-    _person(session)
-    bad = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=6)
-    session.add(bad)
-    with pytest.raises(IntegrityError):
-        session.commit()
-
-
-def test_session_overall_score_negative_rejected(session):
-    _person(session)
-    bad = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=-1)
-    session.add(bad)
-    with pytest.raises(IntegrityError):
-        session.commit()
-
-
 def test_session_session_date_required(session):
     _person(session)
-    bad = SessionModel(id="s1", person_id="p1", session_date=None, overall_score=3)  # type: ignore[arg-type]
+    bad = SessionModel(id="s1", person_id="p1", session_date=None)  # type: ignore[arg-type]
     session.add(bad)
     with pytest.raises(IntegrityError):
         session.commit()
@@ -86,7 +68,7 @@ def test_session_session_date_required(session):
 
 def test_deleting_person_cascades_sessions(session):
     p = _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.commit()
     session.delete(p)
@@ -96,7 +78,7 @@ def test_deleting_person_cascades_sessions(session):
 
 def test_can_insert_session_link(session):
     _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.commit()
     link = SessionLink(
@@ -116,7 +98,7 @@ def test_can_insert_session_link(session):
 
 def test_session_link_url_required(session):
     _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.commit()
     bad = SessionLink(id="l1", session_id="s1", url=None)  # type: ignore[arg-type]
@@ -127,7 +109,7 @@ def test_session_link_url_required(session):
 
 def test_deleting_session_cascades_links(session):
     _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.add(SessionLink(id="l1", session_id="s1", url="https://example.com"))
     session.add(SessionLink(id="l2", session_id="s1", url="https://other.com"))
@@ -140,7 +122,7 @@ def test_deleting_session_cascades_links(session):
 
 def test_deleting_person_cascades_through_session_to_links(session):
     p = _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.add(SessionLink(id="l1", session_id="s1", url="https://example.com"))
     session.commit()
@@ -151,8 +133,8 @@ def test_deleting_person_cascades_through_session_to_links(session):
 
 def test_person_sessions_relationship_navigates(session):
     p = _person(session)
-    session.add(SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3))
-    session.add(SessionModel(id="s2", person_id="p1", session_date="2026-05-01", overall_score=4))
+    session.add(SessionModel(id="s1", person_id="p1", session_date="2026-04-15"))
+    session.add(SessionModel(id="s2", person_id="p1", session_date="2026-05-01"))
     session.commit()
     refreshed = session.get(Person, "p1")
     assert {s.id for s in refreshed.sessions} == {"s1", "s2"}
@@ -160,7 +142,7 @@ def test_person_sessions_relationship_navigates(session):
 
 def test_session_links_relationship_navigates(session):
     _person(session)
-    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15", overall_score=3)
+    s = SessionModel(id="s1", person_id="p1", session_date="2026-04-15")
     session.add(s)
     session.add(SessionLink(id="l1", session_id="s1", url="https://a.com", sort_order=1))
     session.add(SessionLink(id="l2", session_id="s1", url="https://b.com", sort_order=0))

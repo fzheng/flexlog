@@ -14,7 +14,6 @@ from flask import (
 
 from flexlog.db import get_db
 from flexlog.db.models import SessionLink
-from flexlog.services.media import MediaUploadError
 from flexlog.services.people import get_person
 from flexlog.services.sessions import (
     SessionNotFoundError,
@@ -22,7 +21,7 @@ from flexlog.services.sessions import (
     delete_session,
     enabled_rating_dimensions,
     get_session,
-    split_custom_ratings,
+    split_ratings,
     update_session,
 )
 from flexlog.web.forms import SessionForm
@@ -44,7 +43,7 @@ def _session_or_404(session_id: str):
     return s
 
 
-def _parse_custom_ratings_from_request() -> dict[str, int]:
+def _parse_ratings_from_request() -> dict[str, int]:
     """Pull rating_<id> form fields, validate against enabled dimensions."""
     out: dict[str, int] = {}
     for dim in enabled_rating_dimensions():
@@ -60,30 +59,9 @@ def _parse_custom_ratings_from_request() -> dict[str, int]:
     return out
 
 
-def _parse_links_from_request() -> list[dict]:
-    """Read link_url[] / link_label[] parallel arrays into list[dict]."""
-    urls = request.form.getlist("link_url")
-    labels = request.form.getlist("link_label")
-    out: list[dict] = []
-    for i, url in enumerate(urls):
-        label = labels[i] if i < len(labels) else ""
-        out.append({"url": url, "label": label})
-    return out
-
-
-def _gather_uploads() -> list:
-    """Gather all uploaded files from photos[], audios[], videos[] into one list."""
-    out = []
-    for name in ("photos", "audios", "videos"):
-        for fs in request.files.getlist(name):
-            if fs and fs.filename:
-                out.append(fs)
-    return out
-
-
-def _gather_link_thumbnails() -> list:
-    """Read link_thumbnail[] file inputs (parallel to link_url[]/link_label[])."""
-    return list(request.files.getlist("link_thumbnail"))
+def _parse_link_urls_from_request() -> list[str]:
+    """Read link_urls[] in submitted order, drop blanks."""
+    return [u for u in request.form.getlist("link_urls") if (u or "").strip()]
 
 
 @sessions_bp.get("/people/<person_id>/sessions/new")
@@ -96,8 +74,8 @@ def new(person_id: str):
         person=person,
         rating_dimensions=enabled_rating_dimensions(),
         existing_ratings={},
-        existing_links=[],
-        existing_media=[],
+        existing_link_urls=[],
+        existing_media={"photo": [], "audio": [], "video": []},
     )
 
 
@@ -112,58 +90,36 @@ def create(person_id: str):
             form=form,
             person=person,
             rating_dimensions=rating_dimensions,
-            existing_ratings=_parse_custom_ratings_from_request(),
-            existing_links=_parse_links_from_request(),
-            existing_media=[],
+            existing_ratings=_parse_ratings_from_request(),
+            existing_link_urls=_parse_link_urls_from_request(),
+            existing_media={"photo": [], "audio": [], "video": []},
         ), 400
     db = get_db()
-    try:
-        session_row = create_session(
-            db,
-            person_id=person.id,
-            session_date=form.session_date.data,
-            overall_score=form.overall_score.data,
-            custom_ratings=_parse_custom_ratings_from_request(),
-            notes=(form.notes.data or None),
-            links=_parse_links_from_request(),
-            media_uploads=_gather_uploads(),
-            link_thumbnails=_gather_link_thumbnails(),
-        )
-    except MediaUploadError as exc:
-        # File too big, bad MIME, magic-byte mismatch, etc. Re-render the
-        # form with the user's text data preserved so they don't have to
-        # retype notes/score/links — but file inputs reset (browsers
-        # don't repopulate them across a POST, and we'd need the file
-        # bytes on the server, which we no longer have).
-        db.rollback()
-        flash(str(exc), "error")
-        return render_template(
-            "sessions/new.html",
-            form=form,
-            person=person,
-            rating_dimensions=rating_dimensions,
-            existing_ratings=_parse_custom_ratings_from_request(),
-            existing_links=_parse_links_from_request(),
-            existing_media=[],
-        ), 400
+    session_row = create_session(
+        db,
+        person_id=person.id,
+        session_date=form.session_date.data,
+        ratings=_parse_ratings_from_request(),
+        notes=(form.notes.data or None),
+        link_urls=_parse_link_urls_from_request(),
+    )
+    # Media linking is handled in a later task; the route just persists the
+    # session shell here. Existing media-aware tests post legacy fields that
+    # we silently ignore at this stage.
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_row.id))
-
-
-# Detail / edit / update / delete added in Tasks 6 + 7.
 
 
 @sessions_bp.get("/sessions/<session_id>")
 def detail(session_id: str):
     s = _session_or_404(session_id)
     enabled_ids = [d.id for d in enabled_rating_dimensions()]
-    current, archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
+    current, archived = split_ratings(s.ratings_json, enabled_ids)
     label_map = {d.id: d.label for d in enabled_rating_dimensions()}
     current_with_labels = [(rid, label_map[rid], val) for rid, val in current]
     photos = [j.media_file for j in s.media_joins if j.media_file.media_type == "photo"]
     audios = [j.media_file for j in s.media_joins if j.media_file.media_type == "audio"]
     videos = [j.media_file for j in s.media_joins if j.media_file.media_type == "video"]
-    # Build link_thumbnails: {link.id: MediaFile}
     from flexlog.db.models import MediaFile
     db = get_db()
     link_thumbnails = {}
@@ -185,19 +141,14 @@ def detail(session_id: str):
 @sessions_bp.get("/sessions/<session_id>/edit")
 def edit(session_id: str):
     s = _session_or_404(session_id)
-    form = SessionForm(data={
-        "session_date": s.session_date,
-        "overall_score": s.overall_score,
-        "notes": s.notes or "",
-    })
+    form = SessionForm(data={"session_date": s.session_date, "notes": s.notes or ""})
     enabled_ids = [d.id for d in enabled_rating_dimensions()]
-    current_pairs, _archived = split_custom_ratings(s.custom_ratings_json, enabled_ids)
+    current_pairs, _archived = split_ratings(s.ratings_json, enabled_ids)
     existing_ratings = dict(current_pairs)
-    existing_links = [
-        {"id": li.id, "url": li.url, "label": li.label or "", "thumbnail_media_id": li.thumbnail_media_id}
-        for li in s.links
-    ]
-    existing_media = list(s.media_joins)
+    existing_link_urls = [li.url for li in s.links]
+    grouped: dict[str, list] = {"photo": [], "audio": [], "video": []}
+    for j in s.media_joins:
+        grouped[j.media_file.media_type].append(j.media_file)
     return render_template(
         "sessions/edit.html",
         form=form,
@@ -205,8 +156,8 @@ def edit(session_id: str):
         session=s,
         rating_dimensions=enabled_rating_dimensions(),
         existing_ratings=existing_ratings,
-        existing_links=existing_links,
-        existing_media=existing_media,
+        existing_link_urls=existing_link_urls,
+        existing_media=grouped,
     )
 
 
@@ -216,45 +167,30 @@ def update(session_id: str):
     form = SessionForm()
     rating_dimensions = enabled_rating_dimensions()
     if not form.validate_on_submit():
+        grouped: dict[str, list] = {"photo": [], "audio": [], "video": []}
+        for j in s.media_joins:
+            grouped[j.media_file.media_type].append(j.media_file)
         return render_template(
             "sessions/edit.html",
             form=form,
             person=s.person,
             session=s,
             rating_dimensions=rating_dimensions,
-            existing_ratings=_parse_custom_ratings_from_request(),
-            existing_links=_parse_links_from_request(),
-            existing_media=list(s.media_joins),
+            existing_ratings=_parse_ratings_from_request(),
+            existing_link_urls=_parse_link_urls_from_request(),
+            existing_media=grouped,
         ), 400
     db = get_db()
     try:
         update_session(
             db, session_id,
             session_date=form.session_date.data,
-            overall_score=form.overall_score.data,
-            custom_ratings=_parse_custom_ratings_from_request(),
+            ratings=_parse_ratings_from_request(),
             notes=(form.notes.data or None),
-            links=_parse_links_from_request(),
-            media_uploads=_gather_uploads(),
-            link_thumbnails=_gather_link_thumbnails(),
-            remove_session_media_ids=request.form.getlist("remove_session_media"),
-            clear_link_thumbnail_link_ids=request.form.getlist("clear_link_thumbnail"),
+            link_urls=_parse_link_urls_from_request(),
         )
     except SessionNotFoundError:
         abort(404)
-    except MediaUploadError as exc:
-        db.rollback()
-        flash(str(exc), "error")
-        return render_template(
-            "sessions/edit.html",
-            form=form,
-            person=s.person,
-            session=s,
-            rating_dimensions=rating_dimensions,
-            existing_ratings=_parse_custom_ratings_from_request(),
-            existing_links=_parse_links_from_request(),
-            existing_media=list(s.media_joins),
-        ), 400
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_id))
 

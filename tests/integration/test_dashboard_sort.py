@@ -29,11 +29,11 @@ def test_sort_by_session_count(authed_client, db_session):
     for d in ("2026-01-01", "2026-01-02", "2026-01-03"):
         authed_client.post(
             f"/people/{many.id}/sessions",
-            data={"session_date": d, "overall_score": 3, "notes": ""},
+            data={"session_date": d, "rating_energy": 3, "notes": ""},
         )
     authed_client.post(
         f"/people/{few.id}/sessions",
-        data={"session_date": "2026-01-01", "overall_score": 3, "notes": ""},
+        data={"session_date": "2026-01-01", "rating_energy": 3, "notes": ""},
     )
     db_session.expire_all()
     resp = authed_client.get("/?sort=session_count")

@@ -1,9 +1,18 @@
 import io
 
+import pytest
 from werkzeug.datastructures import FileStorage
 
 
 JPEG = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+
+# Session-route media uploads were removed in M6 Task 5; the dedicated
+# upload endpoint comes back in Task 9. Tests that rely on POSTing a file to
+# /people/<id>/sessions and seeing it land in the library are skipped until
+# then. Library tests that don't depend on that path still run.
+_SKIP_UNTIL_TASK_9 = pytest.mark.skip(
+    reason="Session-route media uploads removed in M6 Task 5; restored in Task 9.",
+)
 
 
 def _upload(authed_client, db_session, name="x.jpg", data=JPEG, mime="image/jpeg"):
@@ -25,6 +34,7 @@ def test_library_index_empty(authed_client):
     assert resp.status_code == 200
 
 
+@_SKIP_UNTIL_TASK_9
 def test_library_index_lists_uploaded_files(authed_client, db_session, app):
     """Upload via session route, then assert /library shows the row."""
     from flexlog.services.people import create_person
@@ -40,6 +50,7 @@ def test_library_index_lists_uploaded_files(authed_client, db_session, app):
     assert "x.jpg" in body  # original filename rendered
 
 
+@_SKIP_UNTIL_TASK_9
 def test_library_filter_by_type(authed_client, db_session, app):
     from flexlog.services.people import create_person
     p = create_person(db_session, alias="Alice", tag_input="")
@@ -60,6 +71,7 @@ def test_library_filter_by_type(authed_client, db_session, app):
     assert "a.mp3" in resp_audios and "p.jpg" not in resp_audios
 
 
+@_SKIP_UNTIL_TASK_9
 def test_library_orphan_filter(authed_client, db_session, app):
     """Files referenced by a session disappear when filtered to orphans only."""
     from flexlog.services.people import create_person
@@ -74,6 +86,7 @@ def test_library_orphan_filter(authed_client, db_session, app):
     assert "linked.jpg" not in resp
 
 
+@_SKIP_UNTIL_TASK_9
 def test_library_hard_delete_removes_file(authed_client, db_session, app):
     from flexlog import paths
     from flexlog.db.models import MediaFile
@@ -106,6 +119,7 @@ def test_library_nav_link_in_base_template(authed_client):
     assert "/library" in resp.get_data(as_text=True)
 
 
+@_SKIP_UNTIL_TASK_9
 def test_unlink_from_session_route(authed_client, db_session):
     """POST /sessions/<sid>/media/<sm_id>/unlink drops the join only — file persists."""
     import io
@@ -137,6 +151,7 @@ def test_library_orphans_toggle_label_uses_ui_filter(authed_client, db_session):
     assert "Orphans only" in body  # default builtin
 
 
+@_SKIP_UNTIL_TASK_9
 def test_unlink_from_session_404_on_mismatched_session_id(authed_client, db_session):
     """Posting an sm_id that belongs to a different session must 404."""
     import io

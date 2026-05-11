@@ -83,8 +83,8 @@ def test_dashboard_shows_session_aggregates(authed_client, db_session):
 
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=4, custom_ratings={}, notes=None, links=[])
-    create_session(db_session, person_id=p.id, session_date="2026-05-01", overall_score=5, custom_ratings={}, notes=None, links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={"energy": 4}, notes=None, link_urls=[])
+    create_session(db_session, person_id=p.id, session_date="2026-05-01", ratings={"energy": 5}, notes=None, link_urls=[])
     db_session.commit()
 
     resp = authed_client.get("/")
@@ -103,7 +103,7 @@ def test_dashboard_singular_session_count_for_one_session(authed_client, db_sess
 
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
-    create_session(db_session, person_id=p.id, session_date="2026-04-01", overall_score=4, custom_ratings={}, notes=None, links=[])
+    create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={"energy": 4}, notes=None, link_urls=[])
     db_session.commit()
     resp = authed_client.get("/")
     body = resp.get_data(as_text=True)
