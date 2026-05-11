@@ -55,6 +55,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "remove_link": "Remove",
     "no_links": "No links.",
     "no_notes": "No notes.",
+    "no_ratings": "No ratings yet.",
     "session_count": "sessions",
     "session_count_singular": "session",
     "last_session": "Last:",

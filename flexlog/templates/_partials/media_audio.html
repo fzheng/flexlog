@@ -1,5 +1,4 @@
 <li class="audio-item">
   <audio controls preload="metadata" src="{{ url_for('media.serve', file_key=media.file_key) }}"></audio>
   <span class="audio-name">{{ media.original_filename or media.file_key }}</span>
-  <a class="audio-download" href="{{ url_for('media.serve', file_key=media.file_key) }}" download="{{ media.original_filename or '' }}">Download</a>
 </li>
