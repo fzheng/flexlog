@@ -189,10 +189,17 @@ split_custom_ratings = split_ratings
 def link_media_to_session(
     db: Session, session_id: str, file_keys_by_kind: dict[str, list[str]]
 ) -> tuple[int, list[str]]:
-    """Create SessionMedia join rows for each file_key. All-or-nothing:
-    if any submitted key is unknown (e.g. orphan-deleted between upload
-    and save) or kind-mismatched, NO joins are created and the unknown
-    keys are returned for the caller to surface as a 422.
+    """Create SessionMedia join rows for each file_key. All-or-nothing on
+    unknown keys: if any submitted key is unknown (e.g. orphan-deleted
+    between upload and save) or kind-mismatched, NO joins are created and
+    the unknown keys are returned for the caller to surface as a 422.
+
+    Idempotent on already-linked pairs: if a (session_id, media_file_id)
+    join already exists, the duplicate is silently skipped. The session
+    edit form submits the FULL desired set of file_keys (both existing
+    media's hidden inputs and newly-uploaded ones), so re-submitting
+    existing media must not collide with the UNIQUE constraint on
+    session_media(session_id, media_file_id).
 
     Returns (created_count, unknown_keys). Caller commits."""
     from flexlog.db.models import MediaFile, SessionMedia
@@ -220,6 +227,15 @@ def link_media_to_session(
     if unknown:
         return 0, unknown
 
+    # Existing (session_id, media_file_id) pairs — skip re-linking them.
+    already_linked_mf_ids: set[str] = {
+        row[0] for row in db.execute(
+            select(SessionMedia.media_file_id).where(
+                SessionMedia.session_id == session_id
+            )
+        ).all()
+    }
+
     existing_max_stmt = select(SessionMedia.sort_order).where(
         SessionMedia.session_id == session_id
     )
@@ -228,14 +244,17 @@ def link_media_to_session(
     ) + 1
 
     created = 0
-    for (kind, key) in flat:
+    for (_kind, key) in flat:
         mf = mfs_by_key[key]
+        if mf.id in already_linked_mf_ids:
+            continue
         db.add(SessionMedia(
             id=str(uuid.uuid4()),
             session_id=session_id,
             media_file_id=mf.id,
             sort_order=sort_order,
         ))
+        already_linked_mf_ids.add(mf.id)  # guard against duplicates within `flat`
         sort_order += 1
         created += 1
     db.flush()

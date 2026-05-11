@@ -44,9 +44,22 @@ def make_engine(db_path: Path, sqlcipher_key_hex: str) -> Engine:
     engine = create_engine(
         f"sqlite:///{db_path}",
         module=sqlcipher_dbapi,
+        # NullPool: every request opens a fresh DBAPI connection in its
+        # handler thread and closes it in the same thread. Two reasons we
+        # don't pool:
+        # 1. SQLCipher's underlying SQLite isn't fully thread-safe at the C
+        #    level on common builds; any pool that retains connections
+        #    across threads risks C-level crashes (segfaults) when
+        #    check_same_thread=False is set to silence the Python guard.
+        # 2. SingletonThreadPool produced noisy "thread can only be used
+        #    in that same thread" errors at dispose time, because dying
+        #    request threads leave behind connections that the pool's
+        #    cleanup tries to close from a different thread.
+        # NullPool avoids both: no retention, no cross-thread close. Cost
+        # is one PRAGMA key per request, which is microseconds because we
+        # pass the raw key (x'...' syntax) without PBKDF2 derivation.
         connect_args={"check_same_thread": True},
-        poolclass=pool.SingletonThreadPool,
-        pool_size=5,  # caps total open connections; threads beyond wait briefly
+        poolclass=pool.NullPool,
     )
 
     @event.listens_for(engine, "connect")
