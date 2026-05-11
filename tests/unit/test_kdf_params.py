@@ -79,3 +79,53 @@ def test_write_is_atomic(tmp_path, monkeypatch):
     # (the finally clause should have cleaned it up)
     leftover = [p for p in path.parent.iterdir() if p.name.startswith("." + path.name + ".tmp.")]
     assert leftover == [], f"orphan tmp files: {leftover}"
+
+
+def test_write_kdf_params_creates_file_with_mode_0600(tmp_path):
+    """The file (and the tmp file during write) must be mode 0600 — the
+    plaintext sidecar contains the wrapped master key + Argon2 salt + KDF
+    params and shouldn't be world-readable, even momentarily."""
+    import os
+    import stat
+    params = KdfParams(
+        version=1, kek_salt=b"\x01" * 16, kek_nonce=b"\x02" * 12,
+        wrapped_master_key=b"\x03" * 48,
+        argon2_time=4, argon2_memory_kib=65536, argon2_parallelism=2,
+    )
+    path = tmp_path / "kdf_params.json"
+    write_kdf_params(path, params)
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    assert mode == 0o600, f"expected 0o600, got 0o{mode:o}"
+
+
+def test_write_kdf_params_tmp_file_uses_O_EXCL(tmp_path, monkeypatch):
+    """Tmp file creation uses O_EXCL so an attacker can't pre-create the
+    tmp path with a symlink. Verify by monkey-patching os.open and
+    inspecting the flags."""
+    import os
+    real_open = os.open
+    captured_flags = []
+
+    def spy_open(path, flags, *args):
+        # Track flags only when called for files inside tmp_path (skip
+        # other implicit opens like Python's import machinery)
+        if str(path).startswith(str(tmp_path)):
+            captured_flags.append(flags)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(os, "open", spy_open)
+
+    params = KdfParams(
+        version=1, kek_salt=b"\x01" * 16, kek_nonce=b"\x02" * 12,
+        wrapped_master_key=b"\x03" * 48,
+        argon2_time=4, argon2_memory_kib=65536, argon2_parallelism=2,
+    )
+    write_kdf_params(tmp_path / "kdf_params.json", params)
+
+    # At least one os.open call inside tmp_path should have O_EXCL + O_CREAT
+    flagged = [f for f in captured_flags
+               if (f & os.O_CREAT) and (f & os.O_EXCL)]
+    assert flagged, (
+        f"no os.open(..., O_CREAT|O_EXCL, ...) call observed. "
+        f"flags seen: {[oct(f) for f in captured_flags]}"
+    )

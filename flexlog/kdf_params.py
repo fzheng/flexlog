@@ -4,8 +4,12 @@ The file holds bootstrap secrets needed BEFORE the encrypted SQLCipher DB
 can be opened: kek_salt, kek_nonce, wrapped_master_key, and Argon2id
 parameters. None of these are useful without the user's password.
 
-Mode 0600 is set after the rename; not before, to keep the tmp file
-private from non-owner readers during the atomic-replace window.
+Mode 0600 is baked in at tmp-file creation time via
+os.open(tmp, O_WRONLY|O_CREAT|O_EXCL, 0o600), so the file is
+owner-only-readable from the moment it exists. O_EXCL refuses to clobber
+an existing file at the random tmp path (symlink-race defense). A best-
+effort chmod after os.replace covers the Windows case where O_EXCL
+doesn't apply mode bits.
 """
 from __future__ import annotations
 
@@ -66,10 +70,18 @@ def load_kdf_params(path: Path) -> KdfParams | None:
 
 
 def write_kdf_params(path: Path, params: KdfParams) -> None:
-    """Atomically write `params` to `path`. Writes to a tmp file in the
-    same directory, fsyncs, then os.replace's into place.
+    """Atomically write `params` to `path` with mode 0o600 baked in.
 
-    On any IO failure the existing file is preserved."""
+    The tmp file is created via os.open(..., O_WRONLY|O_CREAT|O_EXCL, 0o600)
+    — the explicit mode arg (combined with the usual umask, which has
+    no bits set for 0o600 anyway) guarantees the file is owner-only-
+    readable from the moment it exists. O_EXCL refuses to clobber an
+    existing tmp file at the random name (symlink-race defense).
+
+    After fsync, os.replace atomically swaps the tmp over the live
+    file. A best-effort chmod after the rename guards against the
+    Windows case where O_EXCL doesn't apply mode bits.
+    """
     payload = {
         "version": params.version,
         "kek_salt": params.kek_salt.hex(),
@@ -84,15 +96,23 @@ def write_kdf_params(path: Path, params: KdfParams) -> None:
     tmp_name = f".{path.name}.tmp.{secrets.token_hex(8)}"
     tmp = path.parent / tmp_name
     try:
-        with tmp.open("w", encoding="utf-8") as f:
+        fd = os.open(
+            tmp,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
+        # Belt + braces: re-apply 0600 after rename. Most platforms keep
+        # the source mode through os.replace, but Windows preserves the
+        # target's pre-existing mode.
         try:
             os.chmod(path, 0o600)
         except OSError:
-            pass  # best-effort on non-POSIX
+            pass
     finally:
         if tmp.exists():
             try:
