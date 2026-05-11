@@ -60,17 +60,12 @@ class Config:
     limits: Limits
 
 
-def load_config(path: Path) -> Config:
-    """Load and validate config.json. Raises ConfigError with full report."""
-    if not path.exists():
-        raise ConfigError(f"config.json not found at {path}")
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"config.json at {path} is not valid JSON: {exc.msg} (line {exc.lineno})") from exc
-
+def validate_config_dict(raw: dict) -> tuple[Config | None, list[str]]:
+    """Validate a parsed config dict. Returns (cfg, []) on success or
+    (None, [error, ...]) on validation failure. Public for the settings UI
+    to reuse for partial-section saves."""
     if not isinstance(raw, dict):
-        raise ConfigError(f"config.json at {path} must be a JSON object at the top level")
+        return None, ["config must be a JSON object at the top level"]
 
     errors: list[str] = []
     app = _parse_app(raw.get("app"), errors)
@@ -79,12 +74,28 @@ def load_config(path: Path) -> Config:
     limits = _parse_limits(raw.get("limits"), errors)
 
     if errors:
+        return None, errors
+    assert app is not None and ratings is not None and limits is not None
+    return Config(app=app, ratings=ratings, ui_strings=ui_strings, limits=limits), []
+
+
+def load_config(path: Path) -> Config:
+    """Load and validate config.json. Raises ConfigError with full report."""
+    if not path.exists():
+        raise ConfigError(f"config.json not found at {path}")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(
+            f"config.json at {path} is not valid JSON: {exc.msg} (line {exc.lineno})"
+        ) from exc
+
+    cfg, errors = validate_config_dict(raw)
+    if errors:
         joined = "\n  - ".join(errors)
         raise ConfigError(f"config.json at {path} has validation errors:\n  - {joined}")
-
-    # Type checker can't see that errors == [] => all parsers returned non-None.
-    assert app is not None and ratings is not None and limits is not None
-    return Config(app=app, ratings=ratings, ui_strings=ui_strings, limits=limits)
+    assert cfg is not None
+    return cfg
 
 
 def _parse_app(value: Any, errors: list[str]) -> AppLabels | None:
