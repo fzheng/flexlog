@@ -81,3 +81,20 @@ def test_migrate_v1_to_v2_is_idempotent(tmp_path):
         rows = list(c.execute(text("SELECT ratings_json FROM session ORDER BY id")))
     assert version == 2
     assert json.loads(rows[0][0]) == {"overall_score": 4, "clarity": 3}
+
+
+def test_migrate_v1_to_v2_recreates_session_person_date_index(tmp_path):
+    """Real v0.2.0 DB has ix_session_person_date on (person_id, session_date);
+    the rebuild must recreate it so query plans don't regress."""
+    engine = _make_v1_engine(tmp_path)
+    # Pre-create the index that v0.2.0 had on the live table.
+    with engine.begin() as c:
+        c.execute(text(
+            "CREATE INDEX ix_session_person_date ON session (person_id, session_date)"
+        ))
+    migrate_v1_to_v2(engine)
+    with engine.begin() as c:
+        names = [r[0] for r in c.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session'"
+        )).all()]
+    assert "ix_session_person_date" in names

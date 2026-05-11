@@ -117,6 +117,11 @@ def migrate_v1_to_v2(engine: Engine) -> None:
                 FROM _session_old
             """))
             conn.execute(text("DROP TABLE _session_old"))
+            # Recreate indexes that lived on the old table — DROP TABLE removed them.
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_session_person_date "
+                "ON session (person_id, session_date)"
+            ))
 
         conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
 
