@@ -57,7 +57,6 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "session_count": "sessions",
     "session_count_singular": "session",
     "last_session": "Last:",
-    "avg_score": "Avg:",
     # Media + Media Library
     "media_library": "Media Library",
     "photos_label": "Photos",
@@ -76,7 +75,6 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "sort_alias": "Alias (A→Z)",
     "sort_last_date": "Last session (newest)",
     "sort_session_count": "Total sessions (most)",
-    "sort_avg_score": "Average score (highest)",
     "sort_custom_prefix": "Avg ",
     "avatar_label": "Avatar",
     "avatar_help": "Choose an image; you'll crop it before saving.",
