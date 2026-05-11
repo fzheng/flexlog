@@ -195,3 +195,38 @@ def unlink_from_session(db: Session, session_media_id: str) -> None:
     sm = db.get(SessionMedia, session_media_id)
     if sm is not None:
         db.delete(sm)
+
+
+def orphan_delete_media_file(db: Session, file_key: str) -> bool:
+    """Best-effort orphan delete. If the MediaFile is referenced by any
+    SessionMedia or Person.avatar_media_id, returns False without doing
+    anything. Otherwise, deletes the encrypted file from disk + the row.
+
+    Returns True iff the file was deleted."""
+    from sqlalchemy import select
+    from flexlog import paths
+    from flexlog.db.models import MediaFile, Person, SessionMedia
+
+    mf = db.execute(
+        select(MediaFile).where(MediaFile.file_key == file_key)
+    ).scalar_one_or_none()
+    if mf is None:
+        return False
+
+    referenced_by_session = db.execute(
+        select(SessionMedia.id).where(SessionMedia.media_file_id == mf.id).limit(1)
+    ).scalar_one_or_none()
+    referenced_as_avatar = db.execute(
+        select(Person.id).where(Person.avatar_media_id == mf.id).limit(1)
+    ).scalar_one_or_none()
+    if referenced_by_session is not None or referenced_as_avatar is not None:
+        return False
+
+    target = paths.resolve_file_key(mf.file_key)
+    try:
+        target.unlink(missing_ok=True)
+    except OSError:
+        pass
+    db.delete(mf)
+    db.flush()
+    return True

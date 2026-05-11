@@ -184,3 +184,64 @@ def split_ratings(
 
 # Backwards-compat alias used by older test files until they're updated.
 split_custom_ratings = split_ratings
+
+
+def link_media_to_session(
+    db: Session, session_id: str, file_keys_by_kind: dict[str, list[str]]
+) -> int:
+    """Create SessionMedia join rows for each file_key. Unknown keys are
+    silently skipped (defensive against stale form state).
+
+    Returns the number of joins created. Caller commits."""
+    from flexlog.db.models import MediaFile, SessionMedia
+    from sqlalchemy import select
+
+    existing_max_stmt = select(SessionMedia.sort_order).where(
+        SessionMedia.session_id == session_id
+    )
+    sort_order = max(
+        (row[0] for row in db.execute(existing_max_stmt)), default=-1
+    ) + 1
+
+    created = 0
+    for kind in ("photo", "audio", "video"):
+        for key in file_keys_by_kind.get(kind, []):
+            mf = db.execute(
+                select(MediaFile).where(MediaFile.file_key == key)
+            ).scalar_one_or_none()
+            if mf is None or mf.media_type != kind:
+                continue
+            db.add(SessionMedia(
+                id=str(uuid.uuid4()),
+                session_id=session_id,
+                media_file_id=mf.id,
+                sort_order=sort_order,
+            ))
+            sort_order += 1
+            created += 1
+    db.flush()
+    return created
+
+
+def unlink_media_from_session(
+    db: Session, session_id: str, file_keys: list[str]
+) -> int:
+    """Remove SessionMedia rows by (session_id, file_key). Returns removed count."""
+    from flexlog.db.models import MediaFile, SessionMedia
+    from sqlalchemy import select, and_
+
+    if not file_keys:
+        return 0
+    stmt = (
+        select(SessionMedia)
+        .join(MediaFile, MediaFile.id == SessionMedia.media_file_id)
+        .where(and_(
+            SessionMedia.session_id == session_id,
+            MediaFile.file_key.in_(file_keys),
+        ))
+    )
+    removed = 0
+    for sm in db.execute(stmt).scalars():
+        db.delete(sm)
+        removed += 1
+    return removed

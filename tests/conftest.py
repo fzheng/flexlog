@@ -203,3 +203,11 @@ def db_session(app):
             yield session
         finally:
             close_db()
+
+
+@pytest.fixture
+def person(db_session):
+    from flexlog.services.people import create_person
+    p = create_person(db_session, alias="Test", tag_input="")
+    db_session.commit()
+    return p
