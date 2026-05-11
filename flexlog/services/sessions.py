@@ -188,13 +188,37 @@ split_custom_ratings = split_ratings
 
 def link_media_to_session(
     db: Session, session_id: str, file_keys_by_kind: dict[str, list[str]]
-) -> int:
-    """Create SessionMedia join rows for each file_key. Unknown keys are
-    silently skipped (defensive against stale form state).
+) -> tuple[int, list[str]]:
+    """Create SessionMedia join rows for each file_key. All-or-nothing:
+    if any submitted key is unknown (e.g. orphan-deleted between upload
+    and save) or kind-mismatched, NO joins are created and the unknown
+    keys are returned for the caller to surface as a 422.
 
-    Returns the number of joins created. Caller commits."""
+    Returns (created_count, unknown_keys). Caller commits."""
     from flexlog.db.models import MediaFile, SessionMedia
     from sqlalchemy import select
+
+    flat: list[tuple[str, str]] = [
+        (kind, key)
+        for kind in ("photo", "audio", "video")
+        for key in file_keys_by_kind.get(kind, [])
+    ]
+    if not flat:
+        return 0, []
+
+    all_keys = [k for (_kind, k) in flat]
+    mfs_by_key: dict[str, MediaFile] = {
+        mf.file_key: mf
+        for mf in db.execute(
+            select(MediaFile).where(MediaFile.file_key.in_(all_keys))
+        ).scalars()
+    }
+    unknown = [
+        k for (kind, k) in flat
+        if k not in mfs_by_key or mfs_by_key[k].media_type != kind
+    ]
+    if unknown:
+        return 0, unknown
 
     existing_max_stmt = select(SessionMedia.sort_order).where(
         SessionMedia.session_id == session_id
@@ -204,23 +228,18 @@ def link_media_to_session(
     ) + 1
 
     created = 0
-    for kind in ("photo", "audio", "video"):
-        for key in file_keys_by_kind.get(kind, []):
-            mf = db.execute(
-                select(MediaFile).where(MediaFile.file_key == key)
-            ).scalar_one_or_none()
-            if mf is None or mf.media_type != kind:
-                continue
-            db.add(SessionMedia(
-                id=str(uuid.uuid4()),
-                session_id=session_id,
-                media_file_id=mf.id,
-                sort_order=sort_order,
-            ))
-            sort_order += 1
-            created += 1
+    for (kind, key) in flat:
+        mf = mfs_by_key[key]
+        db.add(SessionMedia(
+            id=str(uuid.uuid4()),
+            session_id=session_id,
+            media_file_id=mf.id,
+            sort_order=sort_order,
+        ))
+        sort_order += 1
+        created += 1
     db.flush()
-    return created
+    return created, []
 
 
 def unlink_media_from_session(

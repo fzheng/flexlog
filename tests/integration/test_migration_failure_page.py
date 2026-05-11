@@ -1,0 +1,41 @@
+"""A `MigrationError` raised during a request renders the friendly
+errors/migration_failed.html page instead of a bare 500."""
+from __future__ import annotations
+
+
+def test_migration_error_handler_renders_friendly_page(app):
+    from flexlog.migrations.v1_to_v2 import MigrationError
+
+    @app.route("/__test/_raise_migration_error")
+    def _raise():
+        raise MigrationError("simulated migration failure")
+
+    client = app.test_client()
+    import time
+    with client.session_transaction() as sess:
+        sess["authed"] = True
+        sess["epoch"] = app.config["AUTH_EPOCH"]
+        sess["last_seen"] = time.time()
+
+    resp = client.get("/__test/_raise_migration_error")
+    assert resp.status_code == 500
+    body = resp.get_data(as_text=True)
+    assert "migration failed" in body.lower()
+    assert "simulated migration failure" in body
+
+
+def test_migrate_to_latest_wraps_underlying_exception():
+    """The wrapper turns any underlying exception into MigrationError so
+    the Flask error handler can catch it without enumerating every
+    SQLAlchemy/SQLite/SQLCipher exception class."""
+    from flexlog.migrations.v1_to_v2 import MigrationError, migrate_to_latest
+
+    class FakeEngine:
+        def begin(self):
+            raise RuntimeError("disk full")
+
+    import pytest
+    with pytest.raises(MigrationError) as exc_info:
+        migrate_to_latest(FakeEngine())  # type: ignore[arg-type]
+    assert "disk full" in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)

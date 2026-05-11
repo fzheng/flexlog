@@ -14,6 +14,12 @@ from sqlalchemy import Engine, text
 TARGET_VERSION = 2
 
 
+class MigrationError(RuntimeError):
+    """Raised when a schema migration fails. Caught by the Flask error
+    handler in `flexlog.app`, which renders a friendly setup-error page
+    instead of a stack trace. The original exception is the __cause__."""
+
+
 def _table_has_column(conn, table: str, column: str) -> bool:
     rows = conn.execute(text(f"PRAGMA table_info({table})")).all()
     return any(r[1] == column for r in rows)
@@ -128,5 +134,14 @@ def migrate_v1_to_v2(engine: Engine) -> None:
 
 def migrate_to_latest(engine: Engine) -> None:
     """Run all pending migrations in order. Call this from anywhere that
-    attaches an engine (login, setup, test fixtures)."""
-    migrate_v1_to_v2(engine)
+    attaches an engine (login, setup, test fixtures).
+
+    Any underlying exception is wrapped in `MigrationError` so the Flask
+    error handler can render a friendly setup-error page rather than a
+    raw 500."""
+    try:
+        migrate_v1_to_v2(engine)
+    except MigrationError:
+        raise
+    except Exception as exc:
+        raise MigrationError(f"v1 to v2 migration failed: {exc}") from exc

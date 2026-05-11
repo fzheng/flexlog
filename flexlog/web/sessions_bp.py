@@ -117,7 +117,27 @@ def create(person_id: str):
         notes=(form.notes.data or None),
         link_urls=_parse_link_urls_from_request(),
     )
-    link_media_to_session(db, session_row.id, _parse_keys_from_request())
+    _created, unknown = link_media_to_session(
+        db, session_row.id, _parse_keys_from_request()
+    )
+    if unknown:
+        db.rollback()
+        flash(
+            "Some uploaded files are no longer available "
+            f"({len(unknown)} stale key{'s' if len(unknown) != 1 else ''}). "
+            "Remove the marked rows and try again.",
+            "error",
+        )
+        return render_template(
+            "sessions/new.html",
+            form=form,
+            person=person,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_ratings_from_request(),
+            existing_link_urls=_parse_link_urls_from_request(),
+            existing_media={"photo": [], "audio": [], "video": []},
+            stale_keys=unknown,
+        ), 422
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_row.id))
 
@@ -202,9 +222,33 @@ def update(session_id: str):
             link_urls=_parse_link_urls_from_request(),
         )
         unlink_media_from_session(db, session_id, _parse_unlinked_keys_from_request())
-        link_media_to_session(db, session_id, _parse_keys_from_request())
+        _created, unknown = link_media_to_session(
+            db, session_id, _parse_keys_from_request()
+        )
     except SessionNotFoundError:
         abort(404)
+    if unknown:
+        db.rollback()
+        grouped: dict[str, list] = {"photo": [], "audio": [], "video": []}
+        for j in s.media_joins:
+            grouped[j.media_file.media_type].append(j.media_file)
+        flash(
+            "Some uploaded files are no longer available "
+            f"({len(unknown)} stale key{'s' if len(unknown) != 1 else ''}). "
+            "Remove the marked rows and try again.",
+            "error",
+        )
+        return render_template(
+            "sessions/edit.html",
+            form=form,
+            person=s.person,
+            session=s,
+            rating_dimensions=rating_dimensions,
+            existing_ratings=_parse_ratings_from_request(),
+            existing_link_urls=_parse_link_urls_from_request(),
+            existing_media=grouped,
+            stale_keys=unknown,
+        ), 422
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_id))
 

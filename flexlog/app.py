@@ -126,6 +126,13 @@ def create_app() -> Flask:
     def _server_error(_e):
         return _render_template("errors/500.html"), 500
 
+    from flexlog.migrations.v1_to_v2 import MigrationError
+
+    @app.errorhandler(MigrationError)
+    def _migration_failed(e: MigrationError):
+        logging.getLogger(LOGGER_NAME).exception("schema migration failed")
+        return _render_template("errors/migration_failed.html", error=str(e)), 500
+
     return app
 
 

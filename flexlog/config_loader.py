@@ -263,9 +263,9 @@ DEFAULT_CONFIG_JSON = """{
   },
   "limits": {
     "max_custom_rating_dimensions": 6,
-    "max_audio_files_per_session": 10,
-    "max_video_files_per_session": 10,
-    "max_photo_files_per_session": 50,
+    "max_audio_files_per_session": 1000000,
+    "max_video_files_per_session": 1000000,
+    "max_photo_files_per_session": 1000000,
     "max_upload_mb_per_file": 3000
   }
 }

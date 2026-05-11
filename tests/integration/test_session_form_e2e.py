@@ -53,3 +53,55 @@ def test_create_session_with_uploaded_media_and_links(csrf_authed_client, csrf_p
     assert "https://example.com/a" in body
     assert "rating_energy" not in body  # form field doesn't leak
     assert "Energy" in body  # rating label rendered
+
+
+def test_create_session_rejects_stale_file_key_with_422(csrf_authed_client, csrf_person):
+    """If the form posts a photo_keys[] referencing a file_key the server
+    doesn't know (e.g. orphan-deleted between upload and Save), the route
+    re-renders the form with a 422 and writes nothing to the DB."""
+    person = csrf_person
+    token = _csrf_token_from(csrf_authed_client, f"/people/{person.id}/sessions/new")
+
+    resp = csrf_authed_client.post(
+        f"/people/{person.id}/sessions",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-01-01",
+            "rating_energy": "4",
+            "notes": "hello",
+            "photo_keys": ["k/does-not-exist"],
+        },
+    )
+    assert resp.status_code == 422
+    body = resp.get_data(as_text=True)
+    assert "stale key" in body.lower() or "no longer available" in body.lower()
+
+
+def test_update_session_rejects_stale_file_key_with_422(csrf_authed_client, csrf_person, csrf_db_session):
+    """Same guard on edit: a stale photo_keys[] entry rolls back the
+    update and surfaces the error."""
+    from flexlog.services.sessions import create_session
+    person = csrf_person
+    sess = create_session(
+        csrf_db_session, person_id=person.id, session_date="2026-01-01",
+        ratings={"energy": 3}, notes=None, link_urls=[],
+    )
+    csrf_db_session.commit()
+
+    token = _csrf_token_from(csrf_authed_client, f"/sessions/{sess.id}/edit")
+    resp = csrf_authed_client.post(
+        f"/sessions/{sess.id}",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-01-02",
+            "rating_energy": "5",
+            "notes": "updated",
+            "photo_keys": ["k/orphan-deleted"],
+        },
+    )
+    assert resp.status_code == 422
+    # The session's date should be unchanged because the txn rolled back.
+    csrf_db_session.expire_all()
+    from flexlog.services.sessions import get_session
+    refetched = get_session(csrf_db_session, sess.id)
+    assert refetched.session_date == "2026-01-01"

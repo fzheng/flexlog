@@ -1,0 +1,21 @@
+{% extends "_base.html" %}
+
+{% block title %}Migration failed — {{ labels.app_name }}{% endblock %}
+
+{% block content %}
+<section class="error-page">
+  <h2>Schema migration failed</h2>
+  <p>Your database needs an automatic update for this version of flexlog,
+     but the update could not complete. Your data is unchanged.</p>
+  <p>Check the application logs for the full stack trace. The error message:</p>
+  <pre class="error-detail">{{ error }}</pre>
+  <h3>To recover</h3>
+  <ol>
+    <li>Restore your data directory from backup if you have one.</li>
+    <li>If the message above gives a clear cause (e.g. disk full, missing
+        column), fix the underlying issue and restart the application.</li>
+    <li>Otherwise, file an issue at the project's repository with the
+        relevant log excerpt.</li>
+  </ol>
+</section>
+{% endblock %}
