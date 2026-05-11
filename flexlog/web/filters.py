@@ -45,6 +45,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "session_date_label": "Date",
     "overall_score_label": "Overall score",
     "custom_ratings_heading": "Ratings",
+    "ratings_heading": "Ratings",
     "archived_ratings_heading": "Archived ratings",
     "notes_label": "Notes",
     "links_heading": "Links",

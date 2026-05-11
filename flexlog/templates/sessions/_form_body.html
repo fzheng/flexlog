@@ -6,7 +6,7 @@
 
 {% if rating_dimensions %}
 <fieldset class="form-row ratings-grid">
-  <legend>{{ "custom_ratings_heading" | ui }}</legend>
+  <legend>{{ "ratings_heading" | ui }}</legend>
   {% for dim in rating_dimensions %}
     <div class="rating-input">
       <label for="rating_{{ dim.id }}">{{ dim.label }}</label>
@@ -24,21 +24,49 @@
   {% for err in form.notes.errors %}<p class="form-error">{{ err }}</p>{% endfor %}
 </div>
 
+{# Per-kind pending-uploads list. JS owns the list contents; the server
+   reads the hidden <input name="<kind>_keys"> values on submit. #}
+{% for kind, label_key, accept in [
+     ('photo', 'photos_label', 'image/jpeg,image/png,image/webp'),
+     ('audio', 'audio_label',  'audio/mpeg,audio/wav,audio/mp4,audio/x-m4a'),
+     ('video', 'videos_label', 'video/mp4,video/webm,video/quicktime'),
+] %}
+<fieldset class="form-row media-uploads" data-kind="{{ kind }}">
+  <legend>{{ label_key | ui }}</legend>
+  <ul class="pending-list" data-pending-list>
+    {% for mf in existing_media.get(kind, []) %}
+      <li class="upload-row" data-status="uploaded" data-existing="true" data-file-key="{{ mf.file_key }}">
+        <span class="upload-name">{{ mf.original_filename or mf.file_key }}</span>
+        <span class="upload-status">✓</span>
+        <button type="button" class="btn upload-remove" data-remove>✕</button>
+        <input type="hidden" name="{{ kind }}_keys" value="{{ mf.file_key }}">
+      </li>
+    {% endfor %}
+  </ul>
+  <input type="file" class="upload-input" accept="{{ accept }}" multiple data-upload-input hidden>
+  <button type="button" class="btn upload-add" data-upload-add>+ {{ label_key | ui }}</button>
+</fieldset>
+{% endfor %}
+
+{# Track existing media that the user removed (their hidden <input> is
+   deleted by JS, and the file_key is appended here so the server can
+   call unlink_media_from_session). #}
+<div data-unlinked-keys-container></div>
+
 <fieldset class="form-row links-row">
   <legend>{{ "links_heading" | ui }}</legend>
-  <div id="link-rows" data-link-rows>
+  <ul class="link-list" data-link-list>
     {% for url in existing_link_urls %}
-      <div class="link-row" data-link-row>
-        <input type="url" name="link_urls" placeholder="https://..." value="{{ url }}" autocomplete="off">
-        <button type="button" class="btn btn-link" data-remove-link>{{ "remove_link" | ui }}</button>
-      </div>
+      <li class="link-row" data-link-row>
+        <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>
+        <button type="button" class="btn link-remove" data-link-remove>✕</button>
+        <input type="hidden" name="link_urls" value="{{ url }}">
+      </li>
     {% endfor %}
-    {% if not existing_link_urls %}
-      <div class="link-row" data-link-row>
-        <input type="url" name="link_urls" placeholder="https://..." value="" autocomplete="off">
-        <button type="button" class="btn btn-link" data-remove-link>{{ "remove_link" | ui }}</button>
-      </div>
-    {% endif %}
+  </ul>
+  <div class="link-add-row">
+    <input type="url" id="new_link_url" name="new_link_url" placeholder="https://…" data-link-input>
+    <button type="button" class="btn" data-link-add>+ {{ "add_link" | ui }}</button>
   </div>
-  <button type="button" id="add-link-row" class="btn">{{ "add_link" | ui }}</button>
+  <p class="link-add-error" data-link-error hidden></p>
 </fieldset>
