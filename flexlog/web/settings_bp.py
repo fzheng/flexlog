@@ -229,3 +229,44 @@ def change_password():
 
     flash("Password changed.", "success")
     return redirect(url_for("settings.index"), code=303)
+
+
+@settings_bp.post("/ui_strings")
+def save_ui_strings():
+    merged = _config_as_dict()
+    keys = request.form.getlist("key")
+    values = request.form.getlist("value")
+    new_strings: dict[str, str] = {}
+    for k, v in zip(keys, values):
+        k = (k or "").strip()
+        if k:
+            new_strings[k] = v
+    merged["ui_strings"] = new_strings
+    result = _persist_and_swap(merged, errors_redir_tab="ui_strings")
+    if result is not None:
+        return result
+    return redirect(url_for("settings.index", tab="ui_strings"), code=303)
+
+
+@settings_bp.post("/limits")
+def save_limits():
+    merged = _config_as_dict()
+    fields = (
+        "max_custom_rating_dimensions",
+        "max_audio_files_per_session",
+        "max_video_files_per_session",
+        "max_photo_files_per_session",
+        "max_upload_mb_per_file",
+    )
+    new_limits = {}
+    for f in fields:
+        raw = (request.form.get(f) or "").strip()
+        try:
+            new_limits[f] = int(raw)
+        except ValueError:
+            new_limits[f] = raw  # let validator reject it
+    merged["limits"] = new_limits
+    result = _persist_and_swap(merged, errors_redir_tab="limits")
+    if result is not None:
+        return result
+    return redirect(url_for("settings.index", tab="limits"), code=303)

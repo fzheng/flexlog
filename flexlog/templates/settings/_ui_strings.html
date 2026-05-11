@@ -1,1 +1,22 @@
-<p class="empty-state">Coming soon (task in progress).</p>
+<form method="post" action="{{ url_for('settings.save_ui_strings') }}" class="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p class="form-hint">Key/value pairs of UI string overrides. Empty rows are dropped.</p>
+  <table class="ui-strings-table">
+    <thead><tr><th>Key</th><th>Value</th></tr></thead>
+    <tbody data-ui-strings-tbody>
+      {% for k, v in config_dict.ui_strings.items() %}
+      <tr>
+        <td><input type="text" name="key" value="{{ k }}"></td>
+        <td><input type="text" name="value" value="{{ v }}"></td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td><input type="text" name="key" placeholder="new key"></td>
+        <td><input type="text" name="value" placeholder="new value"></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>

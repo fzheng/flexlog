@@ -59,3 +59,37 @@ def test_settings_app_tab_rejects_invalid(csrf_authed_client, tmp_data_dir):
     assert resp.status_code == 400
     # config.json untouched
     assert (tmp_data_dir / "config.json").read_text() == original
+
+
+def test_settings_ui_strings_save(csrf_authed_client, tmp_data_dir):
+    token = _csrf_token(csrf_authed_client, "/settings?tab=ui_strings")
+    resp = csrf_authed_client.post(
+        "/settings/ui_strings",
+        data={
+            "csrf_token": token,
+            "key": ["new_person", "add_session", "search_placeholder", "empty_dashboard"],
+            "value": ["+ Guest", "+ Interview", "Find guests…", "Empty."],
+        },
+    )
+    assert resp.status_code == 303
+    cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
+    assert cfg["ui_strings"]["new_person"] == "+ Guest"
+
+
+def test_settings_limits_save(csrf_authed_client, tmp_data_dir):
+    token = _csrf_token(csrf_authed_client, "/settings?tab=limits")
+    resp = csrf_authed_client.post(
+        "/settings/limits",
+        data={
+            "csrf_token": token,
+            "max_custom_rating_dimensions": "6",
+            "max_audio_files_per_session": "5",
+            "max_video_files_per_session": "5",
+            "max_photo_files_per_session": "25",
+            "max_upload_mb_per_file": "1000",
+        },
+    )
+    assert resp.status_code == 303
+    cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
+    assert cfg["limits"]["max_audio_files_per_session"] == 5
+    assert cfg["limits"]["max_upload_mb_per_file"] == 1000

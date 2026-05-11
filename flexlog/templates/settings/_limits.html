@@ -1,1 +1,18 @@
-<p class="empty-state">Coming soon (task in progress).</p>
+<form method="post" action="{{ url_for('settings.save_limits') }}" class="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% for f, label in [
+      ('max_custom_rating_dimensions', 'Max custom rating dimensions'),
+      ('max_audio_files_per_session', 'Max audio files / session'),
+      ('max_video_files_per_session', 'Max video files / session'),
+      ('max_photo_files_per_session', 'Max photo files / session'),
+      ('max_upload_mb_per_file', 'Max upload size (MB / file)'),
+  ] %}
+  <div class="form-row">
+    <label for="lim_{{ f }}">{{ label }}</label>
+    <input id="lim_{{ f }}" type="number" min="1" name="{{ f }}" value="{{ config_dict.limits[f] }}" required>
+  </div>
+  {% endfor %}
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+  </div>
+</form>
