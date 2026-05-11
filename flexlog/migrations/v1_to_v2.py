@@ -91,18 +91,24 @@ def migrate_v1_to_v2(engine: Engine) -> None:
                 {"j": json.dumps(dict(sorted(merged.items()))), "i": sid},
             )
 
-        # Drop the obsolete columns.
+        # Drop the obsolete columns via SQLite's canonical "create new with
+        # temp name → copy → drop original → rename" pattern (from
+        # https://www.sqlite.org/lang_altertable.html section 7 "Making Other
+        # Kinds Of Table Schema Changes"). We can't use plain DROP COLUMN
+        # because v0.2.0's `overall_score` carried a named CHECK constraint.
         #
-        # SQLite 3.35+ supports ALTER TABLE DROP COLUMN, but it refuses to drop
-        # a column that is still referenced by a CHECK constraint (even if that
-        # constraint is being dropped together with the column). The 'session'
-        # table in v0.2.0 carried a named CHECK on overall_score, so we use the
-        # "rename → recreate → copy → drop" approach instead — safe on all
-        # SQLite/SQLCipher versions and avoids the constraint check.
+        # CRITICAL: we do NOT use the "rename source first → create new →
+        # drop renamed-source" variant. With modern SQLite (legacy_alter_table=0
+        # default), ALTER TABLE RENAME auto-rewrites FK references in
+        # dependent tables (session_media, session_link). Dropping the
+        # renamed-away table then leaves those FK references dangling at the
+        # gone _session_old, breaking any later cascade. The pattern below
+        # avoids that: ALTER TABLE RENAME only fires on the temp `_session_new`,
+        # which no dependent table references.
         if has_overall_score or has_old_json:
-            conn.execute(text("ALTER TABLE session RENAME TO _session_old"))
+            conn.execute(text("PRAGMA foreign_keys=OFF"))
             conn.execute(text("""
-                CREATE TABLE session (
+                CREATE TABLE _session_new (
                     id          VARCHAR NOT NULL,
                     person_id   VARCHAR NOT NULL
                                 REFERENCES person (id) ON DELETE CASCADE,
@@ -115,21 +121,110 @@ def migrate_v1_to_v2(engine: Engine) -> None:
                 )
             """))
             conn.execute(text("""
-                INSERT INTO session
+                INSERT INTO _session_new
                     (id, person_id, session_date, ratings_json, notes,
                      created_at, updated_at)
                 SELECT id, person_id, session_date, ratings_json, notes,
                        created_at, updated_at
-                FROM _session_old
+                FROM session
             """))
-            conn.execute(text("DROP TABLE _session_old"))
-            # Recreate indexes that lived on the old table — DROP TABLE removed them.
+            conn.execute(text("DROP TABLE session"))
+            conn.execute(text("ALTER TABLE _session_new RENAME TO session"))
+            # Recreate the composite index that lived on the old table.
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_session_person_date "
                 "ON session (person_id, session_date)"
             ))
+            conn.execute(text("PRAGMA foreign_keys=ON"))
 
         conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
+
+
+def repair_dangling_session_fk_refs(engine: Engine) -> None:
+    """Detect + rebuild dependent tables whose FK references point at the
+    long-gone `_session_old` (an earlier-version bug in migrate_v1_to_v2).
+    Idempotent: a no-op when sqlite_master is clean.
+
+    Affected tables: `session_media`, `session_link`. The repair recreates
+    each with FK references restored to `session`, preserves all data, and
+    re-creates the original indexes.
+    """
+    with engine.begin() as conn:
+        broken = {
+            row[0]
+            for row in conn.execute(text(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND sql LIKE '%_session_old%'"
+            )).all()
+        }
+        if not broken:
+            return
+
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+
+        if "session_media" in broken:
+            conn.execute(text("""
+                CREATE TABLE _session_media_new (
+                    id            VARCHAR NOT NULL PRIMARY KEY,
+                    session_id    VARCHAR NOT NULL
+                                  REFERENCES session (id) ON DELETE CASCADE,
+                    media_file_id VARCHAR NOT NULL
+                                  REFERENCES media_file (id) ON DELETE CASCADE,
+                    sort_order    INTEGER NOT NULL DEFAULT 0,
+                    created_at    TEXT    NOT NULL
+                )
+            """))
+            conn.execute(text(
+                "INSERT INTO _session_media_new "
+                "(id, session_id, media_file_id, sort_order, created_at) "
+                "SELECT id, session_id, media_file_id, sort_order, created_at "
+                "FROM session_media"
+            ))
+            conn.execute(text("DROP TABLE session_media"))
+            conn.execute(text(
+                "ALTER TABLE _session_media_new RENAME TO session_media"
+            ))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_session_media_pair "
+                "ON session_media (session_id, media_file_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_session_media_file "
+                "ON session_media (media_file_id)"
+            ))
+
+        if "session_link" in broken:
+            conn.execute(text("""
+                CREATE TABLE _session_link_new (
+                    id                 VARCHAR NOT NULL PRIMARY KEY,
+                    session_id         VARCHAR NOT NULL
+                                       REFERENCES session (id) ON DELETE CASCADE,
+                    url                TEXT    NOT NULL,
+                    label              TEXT,
+                    thumbnail_media_id VARCHAR
+                                       REFERENCES media_file (id) ON DELETE SET NULL,
+                    sort_order         INTEGER NOT NULL DEFAULT 0,
+                    created_at         TEXT    NOT NULL
+                )
+            """))
+            conn.execute(text(
+                "INSERT INTO _session_link_new "
+                "(id, session_id, url, label, thumbnail_media_id, "
+                " sort_order, created_at) "
+                "SELECT id, session_id, url, label, thumbnail_media_id, "
+                "       sort_order, created_at "
+                "FROM session_link"
+            ))
+            conn.execute(text("DROP TABLE session_link"))
+            conn.execute(text(
+                "ALTER TABLE _session_link_new RENAME TO session_link"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_session_link_thumbnail_media "
+                "ON session_link (thumbnail_media_id)"
+            ))
+
+        conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
 def migrate_to_latest(engine: Engine) -> None:
@@ -141,7 +236,8 @@ def migrate_to_latest(engine: Engine) -> None:
     raw 500."""
     try:
         migrate_v1_to_v2(engine)
+        repair_dangling_session_fk_refs(engine)
     except MigrationError:
         raise
     except Exception as exc:
-        raise MigrationError(f"v1 to v2 migration failed: {exc}") from exc
+        raise MigrationError(f"schema migration failed: {exc}") from exc
