@@ -120,9 +120,35 @@ def test_qa_08_chinese_notes(authed_client, db_session):
 def test_qa_09_multiple_media(authed_client, db_session):
     """QA-9: owner can upload multiple photos, audio files, and videos.
 
-    Verified by test_session_with_media.py (existing M4 integration test).
+    Covered by test_session_async_upload.py (M6 upload endpoint tests)
+    and test_library_routes.py (library listing after service-layer attach).
+    Verify here that the session_media model can hold multiple rows.
     """
-    pytest.importorskip("tests.integration.test_session_with_media")
+    import io
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.people import create_person
+    from flexlog.services.sessions import create_session, link_media_to_session
+    from flexlog.services.media import upload_to_media_file
+    from flexlog.db.models import SessionMedia
+
+    p = create_person(db_session, alias="QA9", tag_input="")
+    db_session.commit()
+    s = create_session(db_session, person_id=p.id, session_date="2026-04-15",
+                       ratings={}, notes=None, link_urls=[])
+    db_session.flush()
+
+    JPEG1 = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 100
+    JPEG2 = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x02" + b"\x00" * 100
+    mf1 = upload_to_media_file(db_session,
+        FileStorage(stream=io.BytesIO(JPEG1), filename="a.jpg", content_type="image/jpeg"))
+    mf2 = upload_to_media_file(db_session,
+        FileStorage(stream=io.BytesIO(JPEG2), filename="b.jpg", content_type="image/jpeg"))
+    link_media_to_session(db_session, s.id, {"photo": [mf1.file_key, mf2.file_key], "audio": [], "video": []})
+    db_session.commit()
+
+    db_session.expire_all()
+    joins = db_session.query(SessionMedia).filter_by(session_id=s.id).all()
+    assert len(joins) == 2
 
 
 def test_qa_10_inline_media_playback(authed_client, db_session):

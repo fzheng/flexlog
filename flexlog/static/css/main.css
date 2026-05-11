@@ -1043,3 +1043,39 @@ h3 {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+/* Settings tabs */
+.settings-tabs { display: flex; gap: 0; border-bottom: 1px solid #d1d5db; margin-bottom: 1rem; }
+.settings-tabs a { padding: 0.6rem 1rem; color: #4b5563; text-decoration: none; border-bottom: 2px solid transparent; }
+.settings-tabs a.active { color: #111; border-bottom-color: #2563eb; font-weight: 600; }
+
+.settings-errors { padding: 0.8rem 1rem; background: #fee2e2; border-left: 3px solid #dc2626; margin-bottom: 1rem; }
+.settings-errors ul { margin: 0.4rem 0 0 1.2rem; }
+
+.ratings-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.ratings-table th, .ratings-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+.ratings-table input[type="text"], .ratings-table input[type="number"] { width: 100%; box-sizing: border-box; }
+.rating-row.dragging { opacity: 0.5; }
+.rating-row .drag-handle { cursor: grab; color: #9ca3af; user-select: none; }
+.ui-strings-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.ui-strings-table input { width: 100%; box-sizing: border-box; }
+.raw-json-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+
+/* Pending-uploads list */
+.pending-list { list-style: none; margin: 0 0 0.4rem 0; padding: 0; }
+.upload-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; border-radius: 4px; margin-bottom: 0.2rem; background: #f9fafb; }
+.upload-row[data-status="uploaded"] { background: #f0fdf4; }
+.upload-row[data-status="uploading"] { background: #fef3c7; }
+.upload-row[data-status="failed"] { background: #fee2e2; }
+.upload-row .upload-name { flex: 1; font-size: 13px; }
+.upload-row .upload-status { font-size: 12px; color: #4b5563; }
+.upload-row progress { width: 100px; height: 8px; }
+.upload-row .upload-remove { font-size: 11px; padding: 2px 8px; }
+
+/* Link section */
+.link-list { list-style: none; padding: 0; margin: 0 0 0.6rem 0; }
+.link-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; background: #f0f9ff; border-radius: 4px; margin-bottom: 0.2rem; }
+.link-row a { flex: 1; }
+.link-add-row { display: flex; gap: 0.4rem; }
+.link-add-row input[type="url"] { flex: 1; }
+.link-add-error { color: #dc2626; font-size: 12px; margin: 0.2rem 0 0 0; }
