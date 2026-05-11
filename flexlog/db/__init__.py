@@ -70,21 +70,34 @@ _FACTORY_KEY = "FLEXLOG_DB_SESSION_FACTORY"
 _ENGINE_KEY = "FLEXLOG_DB_ENGINE"
 
 
-def attach_to_app(app: Flask, engine: Engine, session_factory: sessionmaker[Session]) -> None:
-    """Stash engine + session factory on the Flask app and register teardown."""
-    app.config[_ENGINE_KEY] = engine
-    app.config[_FACTORY_KEY] = session_factory
-
+def register_db_teardown(app: Flask) -> None:
+    """Register the appcontext teardown that closes the per-request DB
+    session. Called once at app-factory time, before any engine is
+    attached. The teardown is safe to fire on every request — `close_db`
+    pops nothing when no session was opened (e.g. anonymous routes).
+    """
     @app.teardown_appcontext
     def _close(_error: BaseException | None) -> None:
         close_db()
+
+
+def attach_to_app(app: Flask, engine: Engine, session_factory: sessionmaker[Session]) -> None:
+    """Stash engine + session factory on the Flask app.
+
+    The session-close teardown must be registered separately via
+    `register_db_teardown(app)` at app-factory time (it's idempotent across
+    engine swaps, so we don't re-register on every attach)."""
+    app.config[_ENGINE_KEY] = engine
+    app.config[_FACTORY_KEY] = session_factory
 
 
 def attach_engine_at_runtime(app: Flask, engine: Engine,
                               session_factory: sessionmaker[Session]) -> None:
     """Swap a fresh engine + factory into the app config AFTER login.
 
-    Dispose any existing engine first (closes its pooled connections)."""
+    Dispose any existing engine first (closes its pooled connections).
+    Assumes `register_db_teardown(app)` was already called at app-factory
+    time so per-request sessions get closed by Flask's teardown hook."""
     old = app.config.get(_ENGINE_KEY)
     if old is not None and old is not engine:
         try:

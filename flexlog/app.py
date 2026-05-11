@@ -14,7 +14,7 @@ from flask_wtf.csrf import CSRFProtect
 from flexlog import paths
 from flexlog.auth import ALLOWED_UNAUTH_ENDPOINTS, is_authed
 from flexlog.config_loader import Config, load_or_bootstrap
-from flexlog.db import Base  # No engine at boot anymore
+from flexlog.db import Base, register_db_teardown  # engine attached post-login
 from flexlog.secret_key import load_or_create_secret_key
 from flexlog.services.auth import bootstrap_state
 from flexlog.web import register_blueprints
@@ -63,7 +63,12 @@ def create_app() -> Flask:
     CSRFProtect(app)
 
     # NOTE: No DB engine at boot. attach_engine_at_runtime is called from
-    # landing_bp.submit after the master key is unwrapped.
+    # landing_bp.submit after the master key is unwrapped. The session-
+    # close teardown is registered here, before any engine attach, so it
+    # fires for every request — including the post-login ones whose engine
+    # was attached at runtime via attach_engine_at_runtime (which does NOT
+    # itself register a teardown).
+    register_db_teardown(app)
 
     # Jinja filters + context processors (unchanged)
     from jinja2 import pass_context
