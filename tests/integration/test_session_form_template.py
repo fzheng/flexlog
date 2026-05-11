@@ -22,3 +22,9 @@ def test_new_form_renders_rating_inputs_from_enabled_dims(authed_client, person)
     body = authed_client.get(f"/people/{person.id}/sessions/new").get_data(as_text=True)
     # Default config has the energy dimension
     assert 'name="rating_energy"' in body
+
+
+def test_session_form_js_is_served(authed_client):
+    resp = authed_client.get("/static/js/session_form.js")
+    assert resp.status_code == 200
+    assert b"uploadOne" in resp.data
