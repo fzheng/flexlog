@@ -93,3 +93,83 @@ def test_settings_limits_save(csrf_authed_client, tmp_data_dir):
     cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
     assert cfg["limits"]["max_audio_files_per_session"] == 5
     assert cfg["limits"]["max_upload_mb_per_file"] == 1000
+
+
+def test_settings_ratings_add_dimension(csrf_authed_client, tmp_data_dir):
+    token = _csrf_token(csrf_authed_client, "/settings?tab=ratings")
+    resp = csrf_authed_client.post(
+        "/settings/ratings",
+        data={
+            "csrf_token": token,
+            # Repeating-row schema: each row has id, label, scale_min, scale_max,
+            # enabled, sortable form fields. Position in the list matches order.
+            "rating_id": ["energy", "focus"],
+            "rating_label": ["Energy", "Focus"],
+            "rating_description": ["How energetic", "How focused"],
+            "rating_scale_min": ["0", "0"],
+            "rating_scale_max": ["5", "10"],
+            "rating_enabled": ["energy", "focus"],
+            "rating_sortable": ["energy"],
+        },
+    )
+    assert resp.status_code == 303
+    cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
+    assert [r["id"] for r in cfg["ratings"]] == ["energy", "focus"]
+    assert cfg["ratings"][1]["scale_max"] == 10
+    # 'focus' wasn't in rating_sortable → sortable=False
+    assert cfg["ratings"][1]["sortable"] is False
+
+
+def test_settings_ratings_rename_blocked_if_in_use(csrf_authed_client, tmp_data_dir, db_session, person):
+    from flexlog.services.sessions import create_session
+    create_session(
+        db_session, person_id=person.id, session_date="2026-01-01",
+        ratings={"energy": 4}, notes=None, link_urls=[],
+    )
+    db_session.commit()
+
+    token = _csrf_token(csrf_authed_client, "/settings?tab=ratings")
+    resp = csrf_authed_client.post(
+        "/settings/ratings",
+        data={
+            "csrf_token": token,
+            # Attempt to rename 'energy' → 'vigor' while a session still has
+            # a rating under 'energy'.
+            "rating_original_id": ["energy"],
+            "rating_id": ["vigor"],
+            "rating_label": ["Vigor"],
+            "rating_description": [""],
+            "rating_scale_min": ["0"],
+            "rating_scale_max": ["5"],
+            "rating_enabled": ["vigor"],
+            "rating_sortable": ["vigor"],
+        },
+    )
+    assert resp.status_code == 400  # validation rejected
+    # config.json untouched
+    cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
+    assert cfg["ratings"][0]["id"] == "energy"
+
+
+def test_settings_raw_json_save(csrf_authed_client, tmp_data_dir):
+    token = _csrf_token(csrf_authed_client, "/settings?tab=raw")
+    new_cfg = json.loads((tmp_data_dir / "config.json").read_text())
+    new_cfg["app"]["name"] = "From Raw"
+    resp = csrf_authed_client.post(
+        "/settings/raw",
+        data={"csrf_token": token, "raw_json": json.dumps(new_cfg, indent=2)},
+    )
+    assert resp.status_code == 303
+    cfg = json.loads((tmp_data_dir / "config.json").read_text())
+    assert cfg["app"]["name"] == "From Raw"
+
+
+def test_settings_raw_json_rejects_bad_json(csrf_authed_client, tmp_data_dir):
+    token = _csrf_token(csrf_authed_client, "/settings?tab=raw")
+    original = (tmp_data_dir / "config.json").read_text()
+    resp = csrf_authed_client.post(
+        "/settings/raw",
+        data={"csrf_token": token, "raw_json": "not json {{"},
+    )
+    assert resp.status_code == 400
+    assert (tmp_data_dir / "config.json").read_text() == original

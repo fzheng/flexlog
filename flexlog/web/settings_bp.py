@@ -270,3 +270,111 @@ def save_limits():
     if result is not None:
         return result
     return redirect(url_for("settings.index", tab="limits"), code=303)
+
+
+def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]:
+    """Read repeating rating_* form fields. Returns
+    (ratings_list, [(orig_id, new_id), ...], errors)."""
+    ids = request.form.getlist("rating_id")
+    original_ids = request.form.getlist("rating_original_id")
+    labels = request.form.getlist("rating_label")
+    descriptions = request.form.getlist("rating_description")
+    scale_mins = request.form.getlist("rating_scale_min")
+    scale_maxes = request.form.getlist("rating_scale_max")
+    enabled_set = set(request.form.getlist("rating_enabled"))
+    sortable_set = set(request.form.getlist("rating_sortable"))
+
+    n = len(ids)
+    if not (len(labels) == len(scale_mins) == len(scale_maxes) == n):
+        return [], [], ["rating rows are misaligned; refresh the page and try again"]
+
+    ratings: list[dict] = []
+    pairs: list[tuple[str, str]] = []
+    errors: list[str] = []
+    for i in range(n):
+        rid = (ids[i] or "").strip()
+        if not rid:
+            continue
+        orig = (original_ids[i] if i < len(original_ids) else "") or ""
+        try:
+            smin = int(scale_mins[i])
+            smax = int(scale_maxes[i])
+        except (ValueError, TypeError):
+            errors.append(f"ratings[{i}]: scale_min/scale_max must be integers")
+            continue
+        descr = (descriptions[i] if i < len(descriptions) else "") or None
+        ratings.append({
+            "id": rid,
+            "label": (labels[i] or "").strip(),
+            "description": descr if descr else None,
+            "scale_min": smin,
+            "scale_max": smax,
+            "enabled": rid in enabled_set,
+            "sortable": rid in sortable_set,
+        })
+        pairs.append((orig, rid))
+    return ratings, pairs, errors
+
+
+@settings_bp.post("/ratings")
+def save_ratings():
+    new_ratings, id_pairs, parse_errors = _parse_ratings_form()
+    if parse_errors:
+        return render_template(
+            "settings/index.html",
+            tab="ratings",
+            config_dict=_config_as_dict(),
+            errors=parse_errors,
+            in_use_ids=_in_use_rating_ids(),
+            config_path=str(paths.config_path()),
+            loaded_at=current_app.config.get("FLEXLOG_LOADED_AT"),
+        ), 400
+
+    in_use = _in_use_rating_ids()
+    rename_violations = [
+        (orig, new) for (orig, new) in id_pairs
+        if orig and orig != new and orig in in_use
+    ]
+    if rename_violations:
+        return render_template(
+            "settings/index.html",
+            tab="ratings",
+            config_dict=_config_as_dict(),
+            errors=[
+                f"cannot rename {orig!r} → {new!r}: existing sessions reference {orig!r}"
+                for orig, new in rename_violations
+            ],
+            in_use_ids=in_use,
+            config_path=str(paths.config_path()),
+            loaded_at=current_app.config.get("FLEXLOG_LOADED_AT"),
+        ), 400
+
+    merged = _config_as_dict()
+    merged["ratings"] = new_ratings
+    result = _persist_and_swap(merged, errors_redir_tab="ratings")
+    if result is not None:
+        return result
+    return redirect(url_for("settings.index", tab="ratings"), code=303)
+
+
+@settings_bp.post("/raw")
+def save_raw():
+    raw = request.form.get("raw_json", "")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        return render_template(
+            "settings/index.html",
+            tab="raw",
+            config_dict=_config_as_dict(),
+            errors=[f"JSON parse error at line {exc.lineno}, column {exc.colno}: {exc.msg}"],
+            in_use_ids=_in_use_rating_ids(),
+            raw_json=raw,
+            config_path=str(paths.config_path()),
+            loaded_at=current_app.config.get("FLEXLOG_LOADED_AT"),
+        ), 400
+
+    result = _persist_and_swap(parsed, errors_redir_tab="raw")
+    if result is not None:
+        return result
+    return redirect(url_for("settings.index", tab="raw"), code=303)
