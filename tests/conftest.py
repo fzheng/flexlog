@@ -211,3 +211,22 @@ def person(db_session):
     p = create_person(db_session, alias="Test", tag_input="")
     db_session.commit()
     return p
+
+
+@pytest.fixture
+def csrf_db_session(csrf_app):
+    from flexlog.db import close_db, get_db
+    with csrf_app.app_context():
+        s = get_db()
+        try:
+            yield s
+        finally:
+            close_db()
+
+
+@pytest.fixture
+def csrf_person(csrf_db_session):
+    from flexlog.services.people import create_person
+    p = create_person(csrf_db_session, alias="Test", tag_input="")
+    csrf_db_session.commit()
+    return p

@@ -21,7 +21,9 @@ from flexlog.services.sessions import (
     delete_session,
     enabled_rating_dimensions,
     get_session,
+    link_media_to_session,
     split_ratings,
+    unlink_media_from_session,
     update_session,
 )
 from flexlog.web.forms import SessionForm
@@ -64,6 +66,18 @@ def _parse_link_urls_from_request() -> list[str]:
     return [u for u in request.form.getlist("link_urls") if (u or "").strip()]
 
 
+def _parse_keys_from_request() -> dict[str, list[str]]:
+    return {
+        "photo": request.form.getlist("photo_keys"),
+        "audio": request.form.getlist("audio_keys"),
+        "video": request.form.getlist("video_keys"),
+    }
+
+
+def _parse_unlinked_keys_from_request() -> list[str]:
+    return request.form.getlist("unlinked_keys")
+
+
 @sessions_bp.get("/people/<person_id>/sessions/new")
 def new(person_id: str):
     person = _person_or_404(person_id)
@@ -103,9 +117,7 @@ def create(person_id: str):
         notes=(form.notes.data or None),
         link_urls=_parse_link_urls_from_request(),
     )
-    # Media linking is handled in a later task; the route just persists the
-    # session shell here. Existing media-aware tests post legacy fields that
-    # we silently ignore at this stage.
+    link_media_to_session(db, session_row.id, _parse_keys_from_request())
     db.commit()
     return redirect(url_for("sessions.detail", session_id=session_row.id))
 
@@ -189,6 +201,8 @@ def update(session_id: str):
             notes=(form.notes.data or None),
             link_urls=_parse_link_urls_from_request(),
         )
+        unlink_media_from_session(db, session_id, _parse_unlinked_keys_from_request())
+        link_media_to_session(db, session_id, _parse_keys_from_request())
     except SessionNotFoundError:
         abort(404)
     db.commit()
