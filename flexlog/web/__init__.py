@@ -13,6 +13,7 @@ from flexlog.web.people_bp import people_bp
 from flexlog.web.sessions_bp import sessions_bp
 from flexlog.web.settings_bp import settings_bp
 from flexlog.web.setup_bp import setup_bp
+from flexlog.web.upload_bp import upload_bp
 
 
 def register_blueprints(app: Flask) -> None:
@@ -25,3 +26,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(media_bp)
     app.register_blueprint(library_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(upload_bp)
