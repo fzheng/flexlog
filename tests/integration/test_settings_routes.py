@@ -173,3 +173,9 @@ def test_settings_raw_json_rejects_bad_json(csrf_authed_client, tmp_data_dir):
     )
     assert resp.status_code == 400
     assert (tmp_data_dir / "config.json").read_text() == original
+
+
+def test_settings_js_served(authed_client):
+    resp = authed_client.get("/static/js/settings.js")
+    assert resp.status_code == 200
+    assert b"bindRatingsTable" in resp.data
