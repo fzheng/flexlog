@@ -14,18 +14,21 @@
 
   // The thumbnail <img> has already loaded the full file (we serve a
   // single resolution at one URL — thumbnails are CSS-cropped, not
-  // server-resized). Read its naturalWidth/Height so the lightbox uses
-  // each photo's TRUE aspect ratio instead of the placeholder
-  // data-pswp-width/data-pswp-height set on the anchor (those are a
-  // fallback for when the thumbnail hasn't loaded yet, e.g. a user
-  // clicked before lazy-loading fired).
-  lightbox.addFilter("itemData", (itemData) => {
-    const a = itemData.element;
-    if (a) {
-      const img = a.querySelector("img");
+  // server-resized). Read its naturalWidth/Height in the domItemData
+  // filter so the lightbox uses each photo's TRUE aspect ratio instead
+  // of the placeholder data-pswp-width/data-pswp-height on the anchor.
+  // `domItemData` runs at slide-collection time with the link element
+  // passed in explicitly — that's where the width/height get baked in
+  // for both the open transition AND the in-lightbox image sizing.
+  lightbox.addFilter("domItemData", (itemData, element, linkEl) => {
+    const anchor = linkEl || element;
+    if (anchor) {
+      const img = anchor.querySelector("img");
       if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
         itemData.width = img.naturalWidth;
         itemData.height = img.naturalHeight;
+        itemData.w = img.naturalWidth;   // some PhotoSwipe v5 builds key on .w/.h
+        itemData.h = img.naturalHeight;
       }
     }
     return itemData;
