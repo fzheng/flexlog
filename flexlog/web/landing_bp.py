@@ -1,6 +1,7 @@
 """Fake Google-clone landing page + search-or-login handler + bootstrap router."""
 from __future__ import annotations
 
+import re
 from urllib.parse import urlencode
 
 from flask import (
@@ -15,6 +16,64 @@ from flexlog.crypto import (
 from flexlog.db import Base, attach_engine_at_runtime, make_engine, make_session_factory
 from flexlog.kdf_params import load_kdf_params
 from flexlog.services.auth import bootstrap_state
+
+
+_SSN_HYPHENATED = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+_SSN_NINE_DIGITS = re.compile(r"^\d{9}$")
+
+
+def _looks_like_password(q: str) -> bool:
+    """No whitespace, 6-64 chars, contains digit/symbol/case mix."""
+    if not q or any(c.isspace() for c in q):
+        return False
+    if not (6 <= len(q) <= 64):
+        return False
+    has_digit = any(c.isdigit() for c in q)
+    has_symbol = any(not c.isalnum() and not c.isspace() for c in q)
+    has_mixed_case = any(c.islower() for c in q) and any(c.isupper() for c in q)
+    return has_digit or has_symbol or has_mixed_case
+
+
+def _looks_like_ssn(q: str) -> bool:
+    """US SSN: XXX-XX-XXXX hyphenated OR XXXXXXXXX (9 plain digits)."""
+    if not q:
+        return False
+    return bool(_SSN_HYPHENATED.match(q) or _SSN_NINE_DIGITS.match(q))
+
+
+def _luhn_valid(digits: str) -> bool:
+    """Mod-10 / Luhn checksum used by every major card brand."""
+    total = 0
+    for i, c in enumerate(reversed(digits)):
+        n = int(c)
+        if i % 2 == 1:
+            n *= 2
+            if n > 9:
+                n -= 9
+        total += n
+    return total % 10 == 0
+
+
+def _looks_like_cc(q: str) -> bool:
+    """13-19 digits (after stripping spaces and hyphens), Luhn-valid."""
+    if not q:
+        return False
+    cleaned = q.replace(" ", "").replace("-", "")
+    if not cleaned.isdigit():
+        return False
+    if not (13 <= len(cleaned) <= 19):
+        return False
+    return _luhn_valid(cleaned)
+
+
+def looks_like_sensitive_info(q: str) -> bool:
+    """Heuristic: does the typed query look like a password, US SSN, or
+    credit-card number? Used to avoid leaking PII through the
+    Google-search redirect on a wrong-password submission. Errs toward
+    over-blocking — false positives (e.g. 'iphone16') redirect to
+    google.com/ instead of google.com/search?q=iphone16, which is a
+    minor UX downgrade, not a security problem."""
+    return _looks_like_password(q) or _looks_like_ssn(q) or _looks_like_cc(q)
 
 
 landing_bp = Blueprint("landing", __name__)
@@ -51,6 +110,8 @@ def submit():
     kdf = load_kdf_params(paths.data_dir() / "kdf_params.json")
     if kdf is None:
         # Shouldn't happen if state == "ready"; treat as wrong password
+        if looks_like_sensitive_info(typed):
+            return redirect("https://www.google.com/", code=303)
         return redirect(
             "https://www.google.com/search?" + urlencode({"q": typed}), code=303,
         )
@@ -63,6 +124,13 @@ def submit():
     try:
         master_key = aes_gcm_unwrap(kek, kdf.kek_nonce, kdf.wrapped_master_key)
     except InvalidPassword:
+        # Wrong password (or tampered blob). If the typed string looks
+        # like PII — password/SSN/CC — redirect to Google's homepage so
+        # the value never ends up in a URL bar, Referer, browser history,
+        # or Google's logs. Non-PII queries get the normal /search?q=...
+        # so the disguise stays intact for casual visitors.
+        if looks_like_sensitive_info(typed):
+            return redirect("https://www.google.com/", code=303)
         return redirect(
             "https://www.google.com/search?" + urlencode({"q": typed}), code=303,
         )
