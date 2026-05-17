@@ -178,3 +178,10 @@ def test_settings_js_served(authed_client):
     resp = authed_client.get("/static/js/settings.js")
     assert resp.status_code == 200
     assert b"bindRatingsTable" in resp.data
+
+
+def test_settings_js_has_weight_sum_helper(authed_client):
+    resp = authed_client.get("/static/js/settings.js")
+    assert resp.status_code == 200
+    assert b"weight" in resp.data.lower()
+    assert b"distribute" in resp.data.lower()
