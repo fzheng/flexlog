@@ -15,6 +15,7 @@
 
     <label for="sort" class="visually-hidden">{{ "sort_label" | ui }}</label>
     <select id="sort" name="sort" onchange="this.form.submit()">
+      <option value="overall"       {% if sort == "overall" %}selected{% endif %}>{{ "sort_overall" | ui }}</option>
       <option value="alias"         {% if sort == "alias" %}selected{% endif %}>{{ "sort_alias" | ui }}</option>
       <option value="last_date"     {% if sort == "last_date" %}selected{% endif %}>{{ "sort_last_date" | ui }}</option>
       <option value="session_count" {% if sort == "session_count" %}selected{% endif %}>{{ "sort_session_count" | ui }}</option>

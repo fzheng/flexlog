@@ -78,6 +78,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "delete_button": "Delete",
     # Sort + avatar + accessibility + error pages
     "sort_label": "Sort by",
+    "sort_overall": "Overall (avg)",
     "sort_alias": "Alias (A→Z)",
     "sort_last_date": "Last session (newest)",
     "sort_session_count": "Total sessions (most)",

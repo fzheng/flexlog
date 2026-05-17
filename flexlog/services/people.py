@@ -155,15 +155,16 @@ class DashboardRow:
     person: Person
     session_count: int
     last_session_date: str | None
+    avg_overall: float | None = None
 
 
-_VALID_SCALAR_SORTS = ("alias", "last_date", "session_count")
+_VALID_SCALAR_SORTS = ("alias", "last_date", "session_count", "overall")
 
 
 def list_dashboard_rows(
     session: Session,
     query: str,
-    sort: str = "alias",
+    sort: str = "overall",
 ) -> list[DashboardRow]:
     """Return DashboardRows: one per person, with session aggregates.
 
@@ -171,7 +172,8 @@ def list_dashboard_rows(
     case-insensitive substring match on alias OR tag.name OR tag.slug.
 
     Sort options:
-      * "alias"          — alphabetical (default)
+      * "overall"        — avg_overall desc, NULLs last, alias asc tiebreak (DEFAULT)
+      * "alias"          — alphabetical
       * "last_date"      — last_session_date desc, NULLs last, alias asc tiebreak
       * "session_count"  — session_count desc, alias asc tiebreak
       * "custom:<dim_id>" — Python-side average of that dimension across the
@@ -179,6 +181,8 @@ def list_dashboard_rows(
 
     Aggregates computed in a single grouped query with LEFT JOIN through
     session — people with no sessions still appear (zero/None aggregates).
+    avg_overall is computed Python-side via the same compute_overall helper
+    used on the session detail page.
     """
     q = (query or "").strip()
     base = (
@@ -207,6 +211,9 @@ def list_dashboard_rows(
         )
         base = base.where(or_(Person.alias.ilike(like), exists(tag_match)))
 
+    # Compute per-person avg_overall in a single pass so each card knows it.
+    avg_by_person = _per_person_avg_overall(session)
+
     rows: list[DashboardRow] = []
     for person, count, last_date in session.execute(base).all():
         rows.append(
@@ -214,10 +221,35 @@ def list_dashboard_rows(
                 person=person,
                 session_count=int(count or 0),
                 last_session_date=last_date,
+                avg_overall=avg_by_person.get(person.id),
             )
         )
 
     return _sort_rows(session, rows, sort)
+
+
+def _per_person_avg_overall(session: Session) -> dict[str, float]:
+    """Return {person_id: mean(session.overall)} across all sessions.
+
+    Uses the same compute_overall helper as the detail page so the dashboard
+    avg matches what a user sees per-session. Sessions whose overall computes
+    to None (empty ratings, no enabled dims) are skipped — they don't drag
+    the average down.
+    """
+    from flask import current_app
+    from flexlog.services.sessions import compute_overall
+
+    cfg = current_app.config["FLEXLOG"]
+    rows = session.execute(
+        select(SessionRow.person_id, SessionRow.ratings_json)
+    ).all()
+    sums: dict[str, list[float]] = {}
+    for person_id, raw in rows:
+        overall = compute_overall(raw, cfg.ratings)
+        if overall is None:
+            continue
+        sums.setdefault(person_id, []).append(overall)
+    return {pid: sum(vs) / len(vs) for pid, vs in sums.items() if vs}
 
 
 def _sort_rows(
@@ -228,7 +260,7 @@ def _sort_rows(
     """
     alias_key = lambda r: r.person.alias.casefold()  # noqa: E731
 
-    if sort == "alias" or (sort not in _VALID_SCALAR_SORTS and not sort.startswith("custom:")):
+    if sort == "alias":
         return sorted(rows, key=alias_key)
 
     if sort == "last_date":
@@ -236,6 +268,9 @@ def _sort_rows(
 
     if sort == "session_count":
         return sorted(rows, key=lambda r: (-r.session_count, alias_key(r)))
+
+    if sort == "overall":
+        return sorted(rows, key=lambda r: (r.avg_overall is None, -(r.avg_overall or 0.0), alias_key(r)))
 
     if sort.startswith("custom:"):
         dim_id = sort.split(":", 1)[1]
@@ -245,7 +280,8 @@ def _sort_rows(
             key=lambda r: (avgs.get(r.person.id) is None, -(avgs.get(r.person.id) or 0.0), alias_key(r)),
         )
 
-    return sorted(rows, key=alias_key)
+    # Unknown sort key — fall back to the new default (overall).
+    return sorted(rows, key=lambda r: (r.avg_overall is None, -(r.avg_overall or 0.0), alias_key(r)))
 
 
 def _neg_str(s: str | None) -> str:
