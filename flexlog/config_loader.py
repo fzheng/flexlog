@@ -175,7 +175,7 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
             continue
         weight = float(weight)
         if not (0.0 < weight <= 1.0):
-            errors.append(f"{prefix}.weight must be a number in (0, 1]; got {weight}")
+            errors.append(f"{prefix}.weight must be in (0, 1]; got {weight}")
             continue
         out.append(
             RatingDimension(
@@ -290,6 +290,14 @@ def _upgrade_pre_v3_config_dict(raw: dict) -> dict:
     - enabled dims receive a uniformly-distributed `weight` summing to 1.0
       (rounded to 2 decimals with the last enabled dim absorbing remainder)
     - disabled dims receive a placeholder `weight` of 0.01 if missing
+
+    Note on partial weights: if some but not all enabled dims already carry
+    a `weight` field (unusual — pre-v3 configs shouldn't have any), the
+    uniform-distribution step still runs across ALL enabled dims and
+    overwrites the existing values. The "all-or-nothing" semantics matches
+    the common v2→v3 path. To preserve hand-edited partial weights, add
+    weights to every enabled dim before launching (the upgrade then becomes
+    a no-op on weights).
 
     Returns the modified dict (also mutates raw for convenience). Caller is
     responsible for writing the result to disk.

@@ -284,7 +284,7 @@ def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]
     sortable_set = set(request.form.getlist("rating_sortable"))
 
     n = len(ids)
-    if len(labels) != n:
+    if not (len(labels) == len(weights) == n):
         return [], [], ["rating rows are misaligned; refresh the page and try again"]
 
     ratings: list[dict] = []
