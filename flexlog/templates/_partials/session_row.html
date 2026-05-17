@@ -1,8 +1,12 @@
-{# Single session row on the person detail page. Caller passes `session`. #}
+{# Single session row on the person detail page.
+   Caller passes `session` and (optionally) `session_overalls` dict. #}
 <li class="session-row">
   <a class="session-row-link" href="{{ url_for('sessions.detail', session_id=session.id) }}">
     <header class="session-row-head">
       <time datetime="{{ session.session_date }}">{{ session.session_date }}</time>
+      {% if session_overalls is defined and session_overalls.get(session.id) is not none %}
+        <span class="session-row-overall">{{ session_overalls.get(session.id) | overall_fmt }} / 5</span>
+      {% endif %}
     </header>
     {% if session.notes %}
     <p class="session-notes-preview">{{ session.notes | notes_preview }}</p>

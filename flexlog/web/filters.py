@@ -35,6 +35,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "tags_help": "Comma-separated. Same tag with different capitalization counts once.",
     "untagged": "Untagged",
     "no_sessions_yet": "No sessions yet.",
+    "person_avg_prefix": "Average across",
     "no_matches_for": "No matches for",
     "delete_alias_did_not_match": "Alias did not match.",
     # Sessions

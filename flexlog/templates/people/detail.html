@@ -21,6 +21,14 @@
     </div>
   </header>
 
+  {% if avg_overall is not none %}
+  <p class="person-avg-summary">
+    {{ "person_avg_prefix" | ui }} {{ sessions | length }}
+    {% if sessions | length == 1 %}{{ labels.session.singular }}{% else %}{{ labels.session.plural }}{% endif %}:
+    <strong>{{ avg_overall | overall_fmt }}</strong> / 5
+  </p>
+  {% endif %}
+
   <section class="sessions-section">
     <header class="sessions-section-header">
       <h3>{{ labels.session.plural }}</h3>

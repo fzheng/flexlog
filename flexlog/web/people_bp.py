@@ -9,6 +9,7 @@ import re
 from flask import (
     Blueprint,
     abort,
+    current_app,
     flash,
     redirect,
     render_template,
@@ -26,7 +27,7 @@ from flexlog.services.people import (
     get_person,
     update_person,
 )
-from flexlog.services.sessions import list_sessions_for_person
+from flexlog.services.sessions import compute_overall, list_sessions_for_person
 from flexlog.web.forms import PersonForm
 
 _DATAURL_RE = re.compile(r"^data:(image/(?:jpeg|png|webp));base64,(.+)$")
@@ -149,8 +150,21 @@ def update(person_id: str):
 @people_bp.get("/<person_id>")
 def detail(person_id: str):
     person = _person_or_404(person_id)
-    sessions = list_sessions_for_person(get_db(), person_id)
-    return render_template("people/detail.html", person=person, sessions=sessions)
+    db = get_db()
+    sessions = list_sessions_for_person(db, person_id)
+    cfg = current_app.config["FLEXLOG"]
+    session_overalls = {
+        s.id: compute_overall(s.ratings_json, cfg.ratings) for s in sessions
+    }
+    overalls = [v for v in session_overalls.values() if v is not None]
+    avg_overall = sum(overalls) / len(overalls) if overalls else None
+    return render_template(
+        "people/detail.html",
+        person=person,
+        sessions=sessions,
+        session_overalls=session_overalls,
+        avg_overall=avg_overall,
+    )
 
 
 @people_bp.post("/<person_id>/delete")
@@ -160,7 +174,14 @@ def destroy(person_id: str):
     if confirm != person.alias:
         flash("Alias did not match — person not deleted.", "error")
         sessions = list_sessions_for_person(get_db(), person_id)
-        return render_template("people/detail.html", person=person, sessions=sessions, delete_error=True), 400
+        return render_template(
+            "people/detail.html",
+            person=person,
+            sessions=sessions,
+            session_overalls={},
+            avg_overall=None,
+            delete_error=True,
+        ), 400
     db = get_db()
     try:
         delete_person(db, person_id)
