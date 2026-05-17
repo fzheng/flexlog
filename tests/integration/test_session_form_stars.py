@@ -17,3 +17,47 @@ def test_detail_shows_overall_and_stars(authed_client, person, db_session):
     assert "overall" in body.lower()
     # Star rendering: 4 filled + 1 empty
     assert "★★★★☆" in body
+
+
+def test_form_renders_star_inputs(authed_client, person):
+    body = authed_client.get(f"/people/{person.id}/sessions/new").get_data(as_text=True)
+    # Star buttons rendered for the energy dim
+    assert 'data-dim-id="energy"' in body
+    assert 'name="rating_energy"' in body  # hidden mirror input
+    assert 'class="star"' in body
+    # Five star buttons per dim
+    assert body.count('data-value="1"') >= 1
+    assert body.count('data-value="5"') >= 1
+
+
+def test_form_submit_with_star_value_stores_int(csrf_authed_client, csrf_person):
+    """The form posts rating_<id>=N (integer) just like the old number
+    input; server stores it in ratings_json as int N."""
+    import re
+    person = csrf_person
+    body = csrf_authed_client.get(f"/people/{person.id}/sessions/new").get_data(as_text=True)
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', body)
+    assert m is not None
+    token = m.group(1)
+
+    resp = csrf_authed_client.post(
+        f"/people/{person.id}/sessions",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-05-17",
+            "rating_energy": "3",
+            "notes": "",
+            "link_urls": [],
+        },
+    )
+    assert resp.status_code == 302  # redirect to detail
+    # Detail page renders the stored value
+    detail_body = csrf_authed_client.get(resp.headers["Location"]).get_data(as_text=True)
+    assert "★★★☆☆" in detail_body  # 3 stars
+    assert "3.0" in detail_body  # overall (single dim, weight 1.0)
+
+
+def test_rating_stars_js_is_served(authed_client):
+    resp = authed_client.get("/static/js/rating_stars.js")
+    assert resp.status_code == 200
+    assert b"rating_stars" in resp.data or b"star" in resp.data

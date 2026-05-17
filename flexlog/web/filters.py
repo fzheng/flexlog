@@ -46,6 +46,7 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "overall_score_label": "Overall score",
     "custom_ratings_heading": "Ratings",
     "ratings_heading": "Ratings",
+    "overall_preview_label": "Overall (preview):",
     "overall_label": "overall",
     "overall_method_label": "(weighted avg)",
     "weight_label": "weight",

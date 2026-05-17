@@ -8,13 +8,23 @@
 <fieldset class="form-row ratings-grid">
   <legend>{{ "ratings_heading" | ui }}</legend>
   {% for dim in rating_dimensions %}
-    <div class="rating-input">
-      <label for="rating_{{ dim.id }}">{{ dim.label }}</label>
-      <input type="number" id="rating_{{ dim.id }}" name="rating_{{ dim.id }}"
-             min="0" max="5" step="1"
-             value="{{ existing_ratings.get(dim.id, '') }}">
+    <div class="rating-input" data-dim-id="{{ dim.id }}" data-weight="{{ dim.weight }}">
+      <label class="rating-label">{{ dim.label }}</label>
+      <div class="star-row" role="radiogroup" aria-label="{{ dim.label }} rating">
+        {% for n in range(1, 6) %}
+          <button type="button" class="star" data-value="{{ n }}"
+                  aria-label="{{ n }} star{% if n != 1 %}s{% endif %}"
+                  aria-pressed="false">★</button>
+        {% endfor %}
+      </div>
+      <span class="value-readout" data-value-readout>{{ existing_ratings.get(dim.id, 0) }} / 5</span>
+      <input type="hidden" name="rating_{{ dim.id }}" value="{{ existing_ratings.get(dim.id, 0) }}">
     </div>
   {% endfor %}
+  <div class="overall-preview-row">
+    <span>{{ "overall_preview_label" | ui }}</span>
+    <output id="overall-preview" data-overall-preview>0.0</output>
+  </div>
 </fieldset>
 {% endif %}
 

@@ -1079,3 +1079,40 @@ h3 {
 .link-add-row { display: flex; gap: 0.4rem; }
 .link-add-row input[type="url"] { flex: 1; }
 .link-add-error { color: #dc2626; font-size: 12px; margin: 0.2rem 0 0 0; }
+
+/* Star input — session form */
+.rating-input { display: grid; grid-template-columns: 140px 1fr 70px; gap: 10px; align-items: center; margin-bottom: 10px; }
+.rating-input .rating-label { font-size: 13px; }
+.star-row { display: inline-flex; gap: 4px; }
+.star {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-size: 22px; line-height: 1; color: #d1d5db;
+  transition: color 0.1s ease;
+}
+.star.lit, .star.hover { color: #f59e0b; }
+.star:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; border-radius: 2px; }
+.value-readout { font-size: 12px; color: #666; }
+.overall-preview-row {
+  display: flex; gap: 10px; align-items: baseline;
+  padding-top: 10px; margin-top: 8px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+.overall-preview-row output { font-size: 18px; font-weight: 600; }
+
+/* Detail page — overall display */
+.overall-display {
+  display: flex; align-items: baseline; gap: 14px;
+  margin-bottom: 10px; padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.overall-display .overall-value { font-size: 36px; font-weight: 600; line-height: 1; }
+.overall-display .overall-scale { font-size: 14px; color: #666; }
+.overall-display .overall-method { font-size: 11px; color: #999; }
+
+/* Detail page — sub-rating star rows */
+.sub-ratings { list-style: none; padding: 0; margin: 0; }
+.sub-ratings li { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 13px; }
+.sub-ratings .dim-label { flex: 0 0 90px; }
+.sub-ratings .stars { color: #f59e0b; letter-spacing: 2px; }
+.sub-ratings .dim-meta { color: #999; margin-left: auto; }
