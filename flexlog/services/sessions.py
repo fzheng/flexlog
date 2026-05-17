@@ -186,6 +186,47 @@ def split_ratings(
 split_custom_ratings = split_ratings
 
 
+def compute_overall(
+    stored_json: str | None,
+    dims,
+) -> float | None:
+    """Weighted average of sub-rating values over enabled dimensions.
+
+    Returns None when `stored_json` is empty/None/malformed, when no dims
+    are enabled, or when the stored data is not a dict.
+
+    Missing values are treated as 0. Values outside [0, 5] are clamped
+    silently (defensive against hand-edited data).
+
+    The denominator is implicitly 1.0 because validate_config_dict enforces
+    that enabled-dim weights sum to 1.0.
+    """
+    if not stored_json:
+        return None
+    try:
+        stored = json.loads(stored_json)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(stored, dict):
+        return None
+    enabled = [d for d in dims if d.enabled]
+    if not enabled:
+        return None
+    total = 0.0
+    for d in enabled:
+        raw = stored.get(d.id, 0)
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            v = 0
+        else:
+            v = raw
+        if v < 0:
+            v = 0
+        elif v > 5:
+            v = 5
+        total += float(v) * d.weight
+    return total
+
+
 def link_media_to_session(
     db: Session, session_id: str, file_keys_by_kind: dict[str, list[str]]
 ) -> tuple[int, list[str]]:
