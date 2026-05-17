@@ -47,7 +47,9 @@ def _session_or_404(session_id: str):
 
 
 def _parse_ratings_from_request() -> dict[str, int]:
-    """Pull rating_<id> form fields, validate against enabled dimensions."""
+    """Pull rating_<id> form fields. Values are clamped to [0, 5]
+    (defensive — the star UI can't send out-of-range, but a direct POST
+    bypass shouldn't crash the save)."""
     out: dict[str, int] = {}
     for dim in enabled_rating_dimensions():
         raw = (request.form.get(f"rating_{dim.id}") or "").strip()
@@ -57,8 +59,11 @@ def _parse_ratings_from_request() -> dict[str, int]:
             val = int(raw)
         except ValueError:
             continue
-        if 0 <= val <= 5:
-            out[dim.id] = val
+        if val < 0:
+            val = 0
+        elif val > 5:
+            val = 5
+        out[dim.id] = val
     return out
 
 

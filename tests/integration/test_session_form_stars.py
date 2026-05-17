@@ -61,3 +61,27 @@ def test_rating_stars_js_is_served(authed_client):
     resp = authed_client.get("/static/js/rating_stars.js")
     assert resp.status_code == 200
     assert b"rating_stars" in resp.data or b"star" in resp.data
+
+
+def test_server_clamps_out_of_range_rating(csrf_authed_client, csrf_person):
+    """If JS is bypassed and someone POSTs rating_<id>=99, the server
+    silently clamps to 5 rather than erroring."""
+    import re
+    person = csrf_person
+    body = csrf_authed_client.get(f"/people/{person.id}/sessions/new").get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', body).group(1)
+
+    resp = csrf_authed_client.post(
+        f"/people/{person.id}/sessions",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-05-17",
+            "rating_energy": "99",  # out of range
+            "notes": "",
+        },
+    )
+    assert resp.status_code == 302
+    detail_body = csrf_authed_client.get(resp.headers["Location"]).get_data(as_text=True)
+    # Clamped to 5
+    assert "★★★★★" in detail_body
+    assert "5.0" in detail_body  # overall
