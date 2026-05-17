@@ -56,7 +56,7 @@ def _parse_ratings_from_request() -> dict[str, int]:
             val = int(raw)
         except ValueError:
             continue
-        if dim.scale_min <= val <= dim.scale_max:
+        if 0 <= val <= 5:
             out[dim.id] = val
     return out
 

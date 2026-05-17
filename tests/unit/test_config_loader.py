@@ -15,7 +15,7 @@ from flexlog.config_loader import (
 
 def _valid_config_dict() -> dict:
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "app": {
             "name": "Interview Log",
             "entity_singular": "Guest",
@@ -28,16 +28,14 @@ def _valid_config_dict() -> dict:
                 "id": "overall_quality",
                 "label": "Overall Quality",
                 "description": "General impression",
-                "scale_min": 0,
-                "scale_max": 5,
                 "enabled": True,
+                "weight": 0.5,
             },
             {
                 "id": "clarity",
                 "label": "Clarity",
-                "scale_min": 0,
-                "scale_max": 5,
                 "enabled": True,
+                "weight": 0.5,
             },
         ],
         "ui_strings": {
@@ -121,8 +119,10 @@ def test_load_config_app_field_must_be_nonempty_string(tmp_path):
 
 def test_load_config_too_many_enabled_ratings(tmp_path):
     d = _valid_config_dict()
+    # 7 enabled dims — over the 6-cap. Weights also won't sum to 1 but the
+    # cap error fires first.
     d["ratings"] = [
-        {"id": f"r{i}", "label": f"R{i}", "scale_min": 0, "scale_max": 5, "enabled": True}
+        {"id": f"r{i}", "label": f"R{i}", "enabled": True, "weight": 1.0 / 7}
         for i in range(7)
     ]
     p = _write(tmp_path, d)
@@ -133,10 +133,10 @@ def test_load_config_too_many_enabled_ratings(tmp_path):
 def test_load_config_disabled_ratings_dont_count(tmp_path):
     d = _valid_config_dict()
     d["ratings"] = [
-        {"id": f"r{i}", "label": f"R{i}", "scale_min": 0, "scale_max": 5, "enabled": True}
+        {"id": f"r{i}", "label": f"R{i}", "enabled": True, "weight": 1.0 / 6}
         for i in range(6)
     ] + [
-        {"id": "extra", "label": "Extra", "scale_min": 0, "scale_max": 5, "enabled": False}
+        {"id": "extra", "label": "Extra", "enabled": False, "weight": 0.01}
     ]
     p = _write(tmp_path, d)
     cfg = load_config(p)
@@ -146,8 +146,8 @@ def test_load_config_disabled_ratings_dont_count(tmp_path):
 def test_load_config_duplicate_rating_id(tmp_path):
     d = _valid_config_dict()
     d["ratings"] = [
-        {"id": "dup", "label": "A", "scale_min": 0, "scale_max": 5, "enabled": True},
-        {"id": "dup", "label": "B", "scale_min": 0, "scale_max": 5, "enabled": True},
+        {"id": "dup", "label": "A", "enabled": True, "weight": 0.5},
+        {"id": "dup", "label": "B", "enabled": True, "weight": 0.5},
     ]
     p = _write(tmp_path, d)
     with pytest.raises(ConfigError, match="duplicate rating id"):
@@ -162,20 +162,20 @@ def test_load_config_rating_id_slug_shape(tmp_path):
         load_config(p)
 
 
-def test_load_config_rating_scale_out_of_range(tmp_path):
-    # v2 relaxed scale_max to <= 100. 101 is now out of range.
+def test_load_config_rating_scale_fields_rejected(tmp_path):
+    # v3 removed scale_min/scale_max entirely. Presence triggers a clear error.
     d = _valid_config_dict()
-    d["ratings"][0]["scale_max"] = 101
+    d["ratings"][0]["scale_max"] = 5
     p = _write(tmp_path, d)
-    with pytest.raises(ConfigError, match="scale_max"):
+    with pytest.raises(ConfigError, match="scale"):
         load_config(p)
 
 
-def test_load_config_rating_scale_min_negative(tmp_path):
+def test_load_config_rating_scale_min_rejected(tmp_path):
     d = _valid_config_dict()
-    d["ratings"][0]["scale_min"] = -1
+    d["ratings"][0]["scale_min"] = 0
     p = _write(tmp_path, d)
-    with pytest.raises(ConfigError, match="scale_min"):
+    with pytest.raises(ConfigError, match="scale"):
         load_config(p)
 
 
@@ -258,12 +258,11 @@ def test_load_config_rating_description_wrong_type(tmp_path):
         load_config(p)
 
 
-def test_load_config_rating_scale_max_at_or_below_scale_min(tmp_path):
+def test_load_config_rating_weight_out_of_range(tmp_path):
     d = _valid_config_dict()
-    d["ratings"][0]["scale_min"] = 3
-    d["ratings"][0]["scale_max"] = 3  # equal → invalid
+    d["ratings"][0]["weight"] = 1.5  # > 1.0 → invalid
     p = _write(tmp_path, d)
-    with pytest.raises(ConfigError, match="scale_max"):
+    with pytest.raises(ConfigError, match="weight"):
         load_config(p)
 
 

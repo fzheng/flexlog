@@ -38,10 +38,9 @@ class RatingDimension:
     id: str
     label: str
     description: str | None
-    scale_min: int
-    scale_max: int
     enabled: bool
-    sortable: bool = True
+    sortable: bool
+    weight: float
 
 
 @dataclass(frozen=True)
@@ -69,8 +68,8 @@ def validate_config_dict(raw: dict) -> tuple[Config | None, list[str]]:
         return None, ["config must be a JSON object at the top level"]
 
     sv = raw.get("schema_version")
-    if sv != 2:
-        return None, [f"schema_version must be 2; got {sv!r}"]
+    if sv != 3:
+        return None, [f"schema_version must be 3; got {sv!r}"]
 
     errors: list[str] = []
     app = _parse_app(raw.get("app"), errors)
@@ -136,6 +135,14 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
         if not isinstance(entry, dict):
             errors.append(f"{prefix} must be an object")
             continue
+        # Reject removed v2 fields explicitly so users get a clear message
+        # rather than silent ignore.
+        if "scale_min" in entry or "scale_max" in entry:
+            errors.append(
+                f"{prefix}: scale_min/scale_max fields removed in schema_version 3; "
+                "sub-ratings are locked at 0..5"
+            )
+            continue
         rid = entry.get("id")
         if not isinstance(rid, str) or not _SLUG_RE.match(rid):
             errors.append(f"{prefix}.id: rating id must be a slug-shaped string (lowercase, digits, underscore)")
@@ -152,14 +159,6 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
         if description is not None and not isinstance(description, str):
             errors.append(f"{prefix}.description must be a string or omitted")
             continue
-        scale_min = entry.get("scale_min")
-        scale_max = entry.get("scale_max")
-        if not isinstance(scale_min, int) or scale_min < 0:
-            errors.append(f"{prefix}.scale_min must be an integer >= 0")
-            continue
-        if not isinstance(scale_max, int) or scale_max > 100 or scale_max <= scale_min:
-            errors.append(f"{prefix}.scale_max must be an integer in (scale_min, 100]")
-            continue
         enabled = entry.get("enabled", True)
         if not isinstance(enabled, bool):
             errors.append(f"{prefix}.enabled must be a boolean")
@@ -170,21 +169,31 @@ def _parse_ratings(value: Any, errors: list[str]) -> tuple[RatingDimension, ...]
         if not isinstance(sortable, bool):
             errors.append(f"{prefix}.sortable must be a boolean")
             continue
+        weight = entry.get("weight")
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)):
+            errors.append(f"{prefix}.weight is required and must be a number in (0, 1]")
+            continue
+        weight = float(weight)
+        if not (0.0 < weight <= 1.0):
+            errors.append(f"{prefix}.weight must be a number in (0, 1]; got {weight}")
+            continue
         out.append(
             RatingDimension(
-                id=rid,
-                label=label,
-                description=description,
-                scale_min=scale_min,
-                scale_max=scale_max,
-                enabled=enabled,
-                sortable=sortable,
+                id=rid, label=label, description=description,
+                enabled=enabled, sortable=sortable, weight=weight,
             )
         )
     if enabled_count > _MAX_ENABLED_RATINGS:
         errors.append(
             f"at most {_MAX_ENABLED_RATINGS} enabled rating dimensions allowed; got {enabled_count}"
         )
+    # Sum-to-1 check over enabled dims (only if we have all of them parsed).
+    if not errors and enabled_count > 0:
+        enabled_sum = sum(r.weight for r in out if r.enabled)
+        if abs(enabled_sum - 1.0) > 1e-6:
+            errors.append(
+                f"weights of enabled rating dimensions must sum to 1.0; got {enabled_sum:.4f}"
+            )
     return tuple(out)
 
 
@@ -236,7 +245,7 @@ def _parse_limits(value: Any, errors: list[str]) -> Limits | None:
 # Canonical default config.json — used at first-run bootstrap.
 # Mirrors the example in PRD §6.1.
 DEFAULT_CONFIG_JSON = """{
-  "schema_version": 2,
+  "schema_version": 3,
   "app": {
     "name": "Interview Log",
     "entity_singular": "Guest",
@@ -249,10 +258,9 @@ DEFAULT_CONFIG_JSON = """{
       "id": "energy",
       "label": "Energy",
       "description": "How energetic the session felt",
-      "scale_min": 0,
-      "scale_max": 5,
       "enabled": true,
-      "sortable": true
+      "sortable": true,
+      "weight": 1.0
     }
   ],
   "ui_strings": {
@@ -272,31 +280,64 @@ DEFAULT_CONFIG_JSON = """{
 """
 
 
-def _upgrade_v1_config_dict(raw: dict) -> dict:
-    """Mutate `raw` from the v0.2.0 schema shape to v2:
+def _upgrade_pre_v3_config_dict(raw: dict) -> dict:
+    """Mutate `raw` from pre-v3 schemas (v0.2.0 with no schema_version, or
+    schema_version=1, or schema_version=2) into v3 shape:
 
-    - add `schema_version: 2`
-    - default `sortable: True` on each rating dim that lacks it
+    - schema_version becomes 3
+    - each rating dim gains `sortable: True` if missing (v1 → v2 carryover)
+    - each rating dim has scale_min/scale_max stripped if present
+    - enabled dims receive a uniformly-distributed `weight` summing to 1.0
+      (rounded to 2 decimals with the last enabled dim absorbing remainder)
+    - disabled dims receive a placeholder `weight` of 0.01 if missing
 
-    Other fields are untouched so user customizations survive. Caller
-    is responsible for writing the result back to disk.
+    Returns the modified dict (also mutates raw for convenience). Caller is
+    responsible for writing the result to disk.
     """
-    raw["schema_version"] = 2
+    raw["schema_version"] = 3
+
     ratings = raw.get("ratings")
-    if isinstance(ratings, list):
-        for r in ratings:
-            if isinstance(r, dict) and "sortable" not in r:
-                r["sortable"] = True
+    if not isinstance(ratings, list):
+        return raw
+
+    enabled_indices: list[int] = []
+    for i, r in enumerate(ratings):
+        if not isinstance(r, dict):
+            continue
+        # Carry sortable forward (was added in v2)
+        if "sortable" not in r:
+            r["sortable"] = True
+        # Strip removed v2 fields
+        r.pop("scale_min", None)
+        r.pop("scale_max", None)
+        # Disabled dims that lack a weight get a placeholder
+        if r.get("enabled", True) is False and "weight" not in r:
+            r["weight"] = 0.01
+        if r.get("enabled", True):
+            enabled_indices.append(i)
+
+    # If the user already wrote weights for enabled dims, leave them alone.
+    if enabled_indices and not all(
+        "weight" in ratings[i] for i in enabled_indices
+    ):
+        # At least one enabled dim is missing a weight — distribute uniformly.
+        n = len(enabled_indices)
+        per = round(1.0 / n, 2)
+        for i in enabled_indices[:-1]:
+            ratings[i]["weight"] = per
+        # Last enabled dim absorbs the rounding remainder so the sum is 1.0.
+        ratings[enabled_indices[-1]]["weight"] = round(1.0 - per * (n - 1), 2)
+
     return raw
 
 
 def load_or_bootstrap(path: Path) -> Config:
     """Load config.json. If absent, write the default first, then load.
 
-    If the file exists but predates the v2 schema (missing `schema_version`
-    or `schema_version == 1`), auto-upgrade by filling in the v2 defaults
-    and rewriting the file. Other validation errors are NOT silently
-    rewritten — they raise so the user can fix their hand-edited file.
+    If the file exists but predates v3 (missing schema_version, or
+    schema_version in {1, 2}), auto-upgrade by filling in v3 defaults and
+    rewriting the file. Other validation errors are NOT silently rewritten
+    — they raise so the user can fix their hand-edited file.
     """
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -306,12 +347,12 @@ def load_or_bootstrap(path: Path) -> Config:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return load_config(path)  # surfaces the parse error as ConfigError
+        return load_config(path)  # surfaces parse error as ConfigError
 
     if isinstance(raw, dict):
         sv = raw.get("schema_version")
-        if sv is None or sv == 1:
-            upgraded = _upgrade_v1_config_dict(raw)
+        if sv is None or sv in (1, 2):
+            upgraded = _upgrade_pre_v3_config_dict(raw)
             path.write_text(json.dumps(upgraded, indent=2), encoding="utf-8")
 
     return load_config(path)

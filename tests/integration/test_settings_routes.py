@@ -101,13 +101,13 @@ def test_settings_ratings_add_dimension(csrf_authed_client, tmp_data_dir):
         "/settings/ratings",
         data={
             "csrf_token": token,
-            # Repeating-row schema: each row has id, label, scale_min, scale_max,
-            # enabled, sortable form fields. Position in the list matches order.
+            # Repeating-row schema (v3): each row has id, label, description,
+            # weight, enabled, sortable form fields. Position in the list
+            # matches order. Weights of enabled dims must sum to 1.0.
             "rating_id": ["energy", "focus"],
             "rating_label": ["Energy", "Focus"],
             "rating_description": ["How energetic", "How focused"],
-            "rating_scale_min": ["0", "0"],
-            "rating_scale_max": ["5", "10"],
+            "rating_weight": ["0.4", "0.6"],
             "rating_enabled": ["energy", "focus"],
             "rating_sortable": ["energy"],
         },
@@ -115,7 +115,7 @@ def test_settings_ratings_add_dimension(csrf_authed_client, tmp_data_dir):
     assert resp.status_code == 303
     cfg = json.loads(Path(tmp_data_dir, "config.json").read_text())
     assert [r["id"] for r in cfg["ratings"]] == ["energy", "focus"]
-    assert cfg["ratings"][1]["scale_max"] == 10
+    assert cfg["ratings"][1]["weight"] == 0.6
     # 'focus' wasn't in rating_sortable → sortable=False
     assert cfg["ratings"][1]["sortable"] is False
 
@@ -139,8 +139,7 @@ def test_settings_ratings_rename_blocked_if_in_use(csrf_authed_client, tmp_data_
             "rating_id": ["vigor"],
             "rating_label": ["Vigor"],
             "rating_description": [""],
-            "rating_scale_min": ["0"],
-            "rating_scale_max": ["5"],
+            "rating_weight": ["1.0"],
             "rating_enabled": ["vigor"],
             "rating_sortable": ["vigor"],
         },

@@ -15,6 +15,6 @@ def test_validate_config_dict_accepts_default_bootstrap():
 
 
 def test_validate_config_dict_returns_errors_for_bad_input():
-    cfg, errors = validate_config_dict({"schema_version": 2, "app": "not an object"})
+    cfg, errors = validate_config_dict({"schema_version": 3, "app": "not an object"})
     assert cfg is None
     assert any("app" in e for e in errors)

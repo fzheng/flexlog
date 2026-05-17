@@ -54,13 +54,13 @@ def _config_as_dict() -> dict:
     """Serialize the live Config dataclass back to a JSON-ready dict."""
     cfg = current_app.config["FLEXLOG"]
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "app": asdict(cfg.app),
         "ratings": [
             {
                 "id": r.id, "label": r.label, "description": r.description,
-                "scale_min": r.scale_min, "scale_max": r.scale_max,
                 "enabled": r.enabled, "sortable": r.sortable,
+                "weight": r.weight,
             }
             for r in cfg.ratings
         ],
@@ -279,13 +279,12 @@ def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]
     original_ids = request.form.getlist("rating_original_id")
     labels = request.form.getlist("rating_label")
     descriptions = request.form.getlist("rating_description")
-    scale_mins = request.form.getlist("rating_scale_min")
-    scale_maxes = request.form.getlist("rating_scale_max")
+    weights = request.form.getlist("rating_weight")
     enabled_set = set(request.form.getlist("rating_enabled"))
     sortable_set = set(request.form.getlist("rating_sortable"))
 
     n = len(ids)
-    if not (len(labels) == len(scale_mins) == len(scale_maxes) == n):
+    if len(labels) != n:
         return [], [], ["rating rows are misaligned; refresh the page and try again"]
 
     ratings: list[dict] = []
@@ -296,21 +295,20 @@ def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]
         if not rid:
             continue
         orig = (original_ids[i] if i < len(original_ids) else "") or ""
+        raw_w = weights[i] if i < len(weights) else ""
         try:
-            smin = int(scale_mins[i])
-            smax = int(scale_maxes[i])
+            w = float(raw_w)
         except (ValueError, TypeError):
-            errors.append(f"ratings[{i}]: scale_min/scale_max must be integers")
+            errors.append(f"ratings[{i}]: weight must be a number")
             continue
         descr = (descriptions[i] if i < len(descriptions) else "") or None
         ratings.append({
             "id": rid,
             "label": (labels[i] or "").strip(),
             "description": descr if descr else None,
-            "scale_min": smin,
-            "scale_max": smax,
             "enabled": rid in enabled_set,
             "sortable": rid in sortable_set,
+            "weight": w,
         })
         pairs.append((orig, rid))
     return ratings, pairs, errors

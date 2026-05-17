@@ -1,7 +1,8 @@
-"""A pre-v2 config.json (from v0.2.0, missing schema_version) is
-auto-upgraded on first load: schema_version=2 is added, sortable=True
-is set on each rating dim, and the file is rewritten so subsequent
-loads pass validation directly."""
+"""A pre-v3 config.json (from v0.2.0, missing schema_version) is
+auto-upgraded on first load: schema_version=3 is set, sortable=True
+is added on each rating dim, scale_min/scale_max are stripped, and
+weights are distributed across enabled dims so subsequent loads pass
+validation directly."""
 from __future__ import annotations
 
 import json
@@ -44,12 +45,18 @@ def test_load_or_bootstrap_upgrades_missing_schema_version(tmp_path):
     assert cfg.ratings[0].id == "overall_quality"
     assert cfg.ratings[0].sortable is True  # default added during upgrade
     assert cfg.ratings[1].sortable is True
+    # Weights distributed across the two enabled dims
+    assert cfg.ratings[0].weight == 0.5
+    assert cfg.ratings[1].weight == 0.5
 
     # File rewritten so subsequent loads don't re-trigger the upgrade
     on_disk = json.loads(path.read_text())
-    assert on_disk["schema_version"] == 2
+    assert on_disk["schema_version"] == 3
     assert on_disk["ratings"][0]["sortable"] is True
     assert on_disk["ratings"][1]["sortable"] is True
+    # Scale fields stripped
+    assert "scale_min" not in on_disk["ratings"][0]
+    assert "scale_max" not in on_disk["ratings"][0]
 
 
 def test_load_or_bootstrap_upgrades_explicit_schema_version_1(tmp_path):
@@ -63,8 +70,9 @@ def test_load_or_bootstrap_upgrades_explicit_schema_version_1(tmp_path):
 
     cfg = load_or_bootstrap(path)
     assert cfg.ratings[0].sortable is True
+    assert cfg.ratings[0].weight == 0.5
     on_disk = json.loads(path.read_text())
-    assert on_disk["schema_version"] == 2
+    assert on_disk["schema_version"] == 3
 
 
 def test_load_or_bootstrap_preserves_explicit_sortable_false(tmp_path):
@@ -82,8 +90,8 @@ def test_load_or_bootstrap_preserves_explicit_sortable_false(tmp_path):
     assert cfg.ratings[1].sortable is True  # default added
 
 
-def test_load_or_bootstrap_no_op_on_v2_config(tmp_path):
-    """An already-v2 config is loaded without rewriting (mtime stays put)."""
+def test_load_or_bootstrap_no_op_on_v3_config(tmp_path):
+    """An already-v3 config is loaded without rewriting (mtime stays put)."""
     from flexlog.config_loader import load_or_bootstrap, DEFAULT_CONFIG_JSON
 
     path = tmp_path / "config.json"

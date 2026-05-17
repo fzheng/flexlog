@@ -135,9 +135,9 @@ def test_session_create_ignores_non_integer_rating(authed_client, db_session):
 
 
 def test_session_create_ignores_out_of_range_rating(authed_client, db_session):
-    """A custom rating with a value outside the dim's [scale_min, scale_max]
+    """A custom rating with a value outside the locked 0..5 sub-rating
     range must be dropped silently. Exercises the
-    `if dim.scale_min <= val <= dim.scale_max` branch."""
+    `if 0 <= val <= 5` branch in _parse_ratings_from_request."""
     from flexlog.services.people import create_person
     p = create_person(db_session, alias="OutOfRange", tag_input="")
     db_session.commit()

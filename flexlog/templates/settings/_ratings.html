@@ -5,7 +5,7 @@
 
   <table class="ratings-table" data-ratings-table>
     <thead>
-      <tr><th></th><th>id</th><th>Label</th><th>Description</th><th>min</th><th>max</th><th>Enabled</th><th>Sortable</th><th></th></tr>
+      <tr><th></th><th>id</th><th>Label</th><th>Description</th><th>Weight</th><th>Enabled</th><th>Sortable</th><th></th></tr>
     </thead>
     <tbody data-ratings-tbody>
       {% for r in config_dict.ratings %}
@@ -18,8 +18,7 @@
         </td>
         <td><input type="text" name="rating_label" value="{{ r.label }}" required></td>
         <td><input type="text" name="rating_description" value="{{ r.description or '' }}"></td>
-        <td><input type="number" name="rating_scale_min" value="{{ r.scale_min }}" min="0" max="99" required></td>
-        <td><input type="number" name="rating_scale_max" value="{{ r.scale_max }}" min="1" max="100" required></td>
+        <td><input type="number" name="rating_weight" value="{{ r.weight }}" step="0.01" min="0" max="1" required></td>
         <td><input type="checkbox" name="rating_enabled" value="{{ r.id }}" {% if r.enabled %}checked{% endif %}></td>
         <td><input type="checkbox" name="rating_sortable" value="{{ r.id }}" {% if r.sortable %}checked{% endif %}></td>
         <td><button type="button" class="btn rating-delete" data-rating-delete>✕</button></td>
@@ -44,8 +43,7 @@
     </td>
     <td><input type="text" name="rating_label" required></td>
     <td><input type="text" name="rating_description"></td>
-    <td><input type="number" name="rating_scale_min" value="0" min="0" max="99" required></td>
-    <td><input type="number" name="rating_scale_max" value="5" min="1" max="100" required></td>
+    <td><input type="number" name="rating_weight" value="0.0" step="0.01" min="0" max="1" required></td>
     <td><input type="checkbox" name="rating_enabled" checked></td>
     <td><input type="checkbox" name="rating_sortable" checked></td>
     <td><button type="button" class="btn rating-delete" data-rating-delete>✕</button></td>
