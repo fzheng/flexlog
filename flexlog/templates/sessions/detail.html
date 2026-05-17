@@ -27,10 +27,21 @@
 
   <section class="ratings-display">
     <h3>{{ "ratings_heading" | ui }}</h3>
+    {% if overall is not none %}
+    <div class="overall-display">
+      <span class="overall-value">{{ overall | overall_fmt }}</span>
+      <span class="overall-scale">/ 5 {{ "overall_label" | ui }}</span>
+      <span class="overall-method">{{ "overall_method_label" | ui }}</span>
+    </div>
+    {% endif %}
     {% if current_ratings %}
-      <ul>
-        {% for rid, label, value in current_ratings %}
-          <li>{{ label }}: <strong>{{ value }}</strong></li>
+      <ul class="sub-ratings">
+        {% for dim, value in current_ratings %}
+          <li>
+            <span class="dim-label">{{ dim.label }}</span>
+            <span class="stars">{{ value | star_fill }}</span>
+            <span class="dim-meta">{{ value }} ({{ "weight_label" | ui }} {{ (dim.weight * 100) | round(0) | int }}%)</span>
+          </li>
         {% endfor %}
       </ul>
     {% else %}

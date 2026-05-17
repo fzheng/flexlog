@@ -17,6 +17,7 @@ from flexlog.db.models import SessionLink
 from flexlog.services.people import get_person
 from flexlog.services.sessions import (
     SessionNotFoundError,
+    compute_overall,
     create_session,
     delete_session,
     enabled_rating_dimensions,
@@ -145,10 +146,14 @@ def create(person_id: str):
 @sessions_bp.get("/sessions/<session_id>")
 def detail(session_id: str):
     s = _session_or_404(session_id)
-    enabled_ids = [d.id for d in enabled_rating_dimensions()]
+    enabled_dims = enabled_rating_dimensions()
+    enabled_ids = [d.id for d in enabled_dims]
     current, archived = split_ratings(s.ratings_json, enabled_ids)
-    label_map = {d.id: d.label for d in enabled_rating_dimensions()}
-    current_with_labels = [(rid, label_map[rid], val) for rid, val in current]
+    overall = compute_overall(s.ratings_json, enabled_dims)
+    # Build (dim, value) tuples for the template so it can render label,
+    # value, weight, star fill in one pass.
+    dim_by_id = {d.id: d for d in enabled_dims}
+    current_with_dims = [(dim_by_id[rid], value) for rid, value in current]
     photos = [j.media_file for j in s.media_joins if j.media_file.media_type == "photo"]
     audios = [j.media_file for j in s.media_joins if j.media_file.media_type == "audio"]
     videos = [j.media_file for j in s.media_joins if j.media_file.media_type == "video"]
@@ -163,7 +168,8 @@ def detail(session_id: str):
     return render_template(
         "sessions/detail.html",
         person=s.person, session=s,
-        current_ratings=current_with_labels,
+        current_ratings=current_with_dims,
+        overall=overall,
         archived_ratings=archived,
         photos=photos, audios=audios, videos=videos,
         link_thumbnails=link_thumbnails,
