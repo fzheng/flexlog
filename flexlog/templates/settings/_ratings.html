@@ -1,7 +1,11 @@
 <form method="post" action="{{ url_for('settings.save_ratings') }}" class="settings-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  <p class="form-hint">Drag rows to reorder (JS not required — the order in the form is what persists). Disable a dimension to hide it from new sessions without losing existing scores.</p>
+  <p class="form-hint">Drag rows to reorder. Disable a dimension to hide it from new sessions without losing existing scores. The weights of enabled dimensions must sum to <strong>1.00</strong>.</p>
+
+  <div class="weight-sum-indicator" data-weight-sum-indicator>
+    Sum of enabled weights: <span data-weight-sum>0.00</span> / 1.00
+  </div>
 
   <table class="ratings-table" data-ratings-table>
     <thead>
@@ -18,8 +22,11 @@
         </td>
         <td><input type="text" name="rating_label" value="{{ r.label }}" required></td>
         <td><input type="text" name="rating_description" value="{{ r.description or '' }}"></td>
-        <td><input type="number" name="rating_weight" value="{{ r.weight }}" step="0.01" min="0.01" max="1" required></td>
-        <td><input type="checkbox" name="rating_enabled" value="{{ r.id }}" {% if r.enabled %}checked{% endif %}></td>
+        <td>
+          <input type="number" name="rating_weight" value="{{ '%.2f'|format(r.weight) }}" min="0.01" max="1.00" step="0.01" required data-weight-input>
+          <span class="weight-pct" data-weight-pct>({{ (r.weight * 100) | round(0) | int }}%)</span>
+        </td>
+        <td><input type="checkbox" name="rating_enabled" value="{{ r.id }}" {% if r.enabled %}checked{% endif %} data-rating-enabled></td>
         <td><input type="checkbox" name="rating_sortable" value="{{ r.id }}" {% if r.sortable %}checked{% endif %}></td>
         <td><button type="button" class="btn rating-delete" data-rating-delete>✕</button></td>
       </tr>
@@ -27,7 +34,10 @@
     </tbody>
   </table>
 
-  <button type="button" class="btn" data-rating-add>+ Add rating dimension</button>
+  <div style="display:flex;gap:0.6rem;margin-top:0.8rem;">
+    <button type="button" class="btn" data-rating-add>+ Add rating dimension</button>
+    <button type="button" class="btn" data-distribute-evenly>Distribute weights evenly</button>
+  </div>
 
   <div class="form-actions" style="margin-top:1rem;">
     <button type="submit" class="btn btn-primary">Save</button>
@@ -43,8 +53,11 @@
     </td>
     <td><input type="text" name="rating_label" required></td>
     <td><input type="text" name="rating_description"></td>
-    <td><input type="number" name="rating_weight" value="0.1" step="0.01" min="0.01" max="1" required></td>
-    <td><input type="checkbox" name="rating_enabled" checked></td>
+    <td>
+      <input type="number" name="rating_weight" value="0.10" min="0.01" max="1.00" step="0.01" required data-weight-input>
+      <span class="weight-pct" data-weight-pct>(10%)</span>
+    </td>
+    <td><input type="checkbox" name="rating_enabled" checked data-rating-enabled></td>
     <td><input type="checkbox" name="rating_sortable" checked></td>
     <td><button type="button" class="btn rating-delete" data-rating-delete>✕</button></td>
   </tr>

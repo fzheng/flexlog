@@ -295,11 +295,13 @@ def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]
         if not rid:
             continue
         orig = (original_ids[i] if i < len(original_ids) else "") or ""
-        raw_w = weights[i] if i < len(weights) else ""
         try:
-            w = float(raw_w)
+            weight = float(weights[i])
         except (ValueError, TypeError):
             errors.append(f"ratings[{i}]: weight must be a number")
+            continue
+        if not (0.0 < weight <= 1.0):
+            errors.append(f"ratings[{i}]: weight must be in (0, 1]; got {weight}")
             continue
         descr = (descriptions[i] if i < len(descriptions) else "") or None
         ratings.append({
@@ -308,7 +310,7 @@ def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]
             "description": descr if descr else None,
             "enabled": rid in enabled_set,
             "sortable": rid in sortable_set,
-            "weight": w,
+            "weight": weight,
         })
         pairs.append((orig, rid))
     return ratings, pairs, errors
