@@ -152,6 +152,32 @@ def notes_preview(notes: str | None, length: int = NOTES_PREVIEW_LEN) -> str:
     return s[:length].rstrip() + "…"
 
 
+def overall_fmt(value: float | None) -> str:
+    """Format a session/person overall to one decimal place. Returns an
+    empty string when value is None so templates can render '—' or a
+    placeholder without conditionals."""
+    if value is None:
+        return ""
+    try:
+        return "%.1f" % float(value)
+    except (TypeError, ValueError):
+        return ""
+
+
+_STAR_FILLED = "★"
+_STAR_EMPTY = "☆"
+
+
+def star_fill(value) -> str:
+    """Inline star rendering for a sub-rating integer in [0, 5]. Returns
+    '★' * value + '☆' * (5 - value). Out-of-range values are clamped;
+    non-integers return all-empty."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return _STAR_EMPTY * 5
+    v = max(0, min(5, value))
+    return _STAR_FILLED * v + _STAR_EMPTY * (5 - v)
+
+
 def build_labels_context(config: Config) -> dict[str, Any]:
     """Build the `labels` dict injected into every template."""
     return {

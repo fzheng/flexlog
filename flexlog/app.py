@@ -80,6 +80,10 @@ def create_app() -> Flask:
     app.jinja_env.filters["ui"] = _ui
     app.jinja_env.filters["notes_preview"] = notes_preview
 
+    from flexlog.web.filters import overall_fmt, star_fill
+    app.jinja_env.filters["overall_fmt"] = overall_fmt
+    app.jinja_env.filters["star_fill"] = star_fill
+
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
         return {"labels": build_labels_context(current_app.config["FLEXLOG"])}
