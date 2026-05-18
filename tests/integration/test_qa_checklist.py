@@ -25,9 +25,8 @@ def test_qa_02_no_third_party_requests():
     """QA-2: no third-party network requests during normal usage.
 
     Verified by code search: no calls to `requests`, `urllib.request`,
-    `httpx`, etc. in flexlog/. (v0.6.0: link_thumbnails.py uses headless
-    Chromium via Playwright for link previews — not raw HTTP — so no
-    whitelist is needed.)
+    `httpx`, etc. in flexlog/. Link thumbnails are pasted by the user
+    (v0.7.0); flexlog itself never reaches out to the link host.
     """
     import pathlib
     src = pathlib.Path("flexlog")

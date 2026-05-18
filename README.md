@@ -61,13 +61,13 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
-## v0.6.0 — Link Thumbnails (page-screenshot via headless Chromium)
+## v0.7.0 — Link Thumbnails (paste your own screenshot)
 
-- **Each link gets a thumbnail.** On session save, the server launches a headless Chromium via Playwright, navigates to the URL, captures a viewport screenshot, resizes to 640px wide, and stores it encrypted via the existing media pipeline. The session detail page already renders the thumbnail next to each link.
-- **URL-keyed preservation.** Reordering links no longer re-fetches their thumbnails. Only genuinely new-or-changed URLs (or links whose previous fetch failed) trigger a fresh fetch.
-- **SSRF guard.** Initial URL is rejected if it resolves to a private/loopback/link-local/multicast/reserved IP. If Chromium navigates to a redirect target with an unsafe IP, the screenshot is aborted.
-- **Best-effort.** A failed fetch (DNS error, timeout, JS crash) silently saves the link without a thumbnail. Saves never block on the fetcher.
-- **First-time setup:** `playwright install chromium` (run by `make install`) downloads the bundled Chromium browser (~280 MB, one-time). Each link adds ~1-3 seconds to the session save while the browser renders the page.
+- **Each link gets a thumbnail you paste yourself.** Click a link row in the session form to focus it, then paste (⌘V / Ctrl+V) a screenshot — or drop an image onto the row. The image uploads to the existing encrypted media pipeline; on save, the link's thumbnail is set to that MediaFile.
+- **Why paste, not auto-fetch?** v0.6.0 tried headless-Chromium screenshots. Real-world pages defeated it: lazy-loaded images, paywalls, captchas, JS frameworks that need a logged-in session. Pasting is faster, gives you control, and removes ~280 MB of bundled Chromium from the install.
+- **SHA-256 dedup.** Pasting the same screenshot for two different links resolves to a single MediaFile on disk.
+- **Reorder or re-save freely.** The hidden `link_thumb_keys` input parallel to each URL preserves the existing thumbnail. The ✕ on the thumbnail clears it; pasting again replaces it.
+- **No outbound network.** flexlog makes zero third-party requests when you save a link.
 
 ## v0.4.0 — Weighted Overall Ratings + Star Input
 
@@ -151,8 +151,6 @@ Requires Python 3.11+. If your default `python3` is older, pass
 `PYTHON=python3.13` (or whichever) to `make install`.
 
 ## Privacy & data
-
-> **Note on outbound network from v0.6.0:** when you save a session containing a link, the server launches a headless Chromium to navigate to the URL and screenshot it. The link host sees a browser-like request (including loading the page's CSS, JS, images, fonts — same as any normal page view); nothing leaves your machine except contact with the exact URLs you added.
 
 - **Single-user, local-only.** No accounts, no roles, no multi-user.
   This is by design — the data model assumes one owner.

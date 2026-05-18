@@ -19,8 +19,7 @@ from flask import current_app
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from flexlog.db.models import Person, Session as SessionRow, SessionLink
-from flexlog.services.link_thumbnails import fetch_thumbnail
+from flexlog.db.models import MediaFile, Person, Session as SessionRow, SessionLink
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -47,58 +46,43 @@ def _serialize_ratings(ratings: dict[str, int]) -> str:
     return json.dumps(dict(sorted(ratings.items())))
 
 
-def _fetch_and_store_thumbnail(db: Session, url: str) -> str | None:
-    """Fetch the link's og:image, push through upload_to_media_file
-    (dedup + encrypt), return the MediaFile id. Silent on any failure."""
-    import io
-    from urllib.parse import urlparse
-
-    from werkzeug.datastructures import FileStorage
-
-    from flexlog.services.media import upload_to_media_file
-
-    jpeg_bytes = fetch_thumbnail(url)
-    if jpeg_bytes is None:
-        return None
-    try:
-        host = urlparse(url).hostname or "thumbnail"
-        fs = FileStorage(
-            stream=io.BytesIO(jpeg_bytes),
-            filename=f"link-thumb-{host}.jpg",
-            content_type="image/jpeg",
-        )
-        mf = upload_to_media_file(db, fs)
-        return mf.id
-    except Exception:
-        return None
-
-
 def _replace_links(
     db: Session,
     session_row: SessionRow,
     urls: list[str],
+    thumb_keys: list[str],
 ) -> None:
-    """Replace the session's links with the submitted URLs.
+    """Replace the session's links with the submitted URLs + thumbnails.
 
-    For each URL that is new, changed, OR whose previous thumbnail was
-    None (e.g. pre-M8 links, or a prior fetch that failed), fetch the
-    og:image via fetch_thumbnail, push the bytes through
-    upload_to_media_file (encrypt + dedup), and set the SessionLink's
-    thumbnail_media_id. URLs that already have a non-None thumbnail
-    keep it (URL-keyed match, not position-keyed — so reordering
-    doesn't lose thumbnails, and so re-saving an unchanged session
-    doesn't re-fetch thumbnails that already exist)."""
-    old_thumbs_by_url = {li.url: li.thumbnail_media_id for li in session_row.links}
+    `thumb_keys` is a parallel list to `urls`. Each entry is a
+    MediaFile.file_key (set by the form-side paste handler after the
+    user pasted a screenshot for that link), or "" for "no thumbnail".
+
+    Unknown or non-photo keys silently drop to None — a defensive
+    posture against a hand-crafted POST. The legitimate path always
+    sees a freshly-uploaded photo file_key because the upload route
+    only accepts kind=photo for paste-uploads."""
+    if len(thumb_keys) < len(urls):
+        thumb_keys = list(thumb_keys) + [""] * (len(urls) - len(thumb_keys))
+
+    nonempty_keys = {(k or "").strip() for k in thumb_keys if (k or "").strip()}
+    mf_by_key: dict[str, MediaFile] = {}
+    if nonempty_keys:
+        mf_by_key = {
+            mf.file_key: mf
+            for mf in db.execute(
+                select(MediaFile).where(MediaFile.file_key.in_(nonempty_keys))
+            ).scalars()
+            if mf.media_type == "photo"
+        }
+
     session_row.links = []
-    for i, raw in enumerate(urls):
-        url = (raw or "").strip()
+    for i, (raw_url, raw_key) in enumerate(zip(urls, thumb_keys)):
+        url = (raw_url or "").strip()
         if not url:
             continue
-        existing_thumb = old_thumbs_by_url.get(url)
-        if existing_thumb is not None:
-            thumb_id = existing_thumb
-        else:
-            thumb_id = _fetch_and_store_thumbnail(db, url)
+        key = (raw_key or "").strip()
+        mf = mf_by_key.get(key) if key else None
         session_row.links.append(
             SessionLink(
                 id=str(uuid.uuid4()),
@@ -106,7 +90,7 @@ def _replace_links(
                 url=url,
                 label=None,
                 sort_order=i,
-                thumbnail_media_id=thumb_id,
+                thumbnail_media_id=mf.id if mf is not None else None,
             )
         )
 
@@ -118,12 +102,18 @@ def create_session(
     ratings: dict[str, int],
     notes: str | None,
     link_urls: list[str],
+    link_thumb_keys: list[str] | None = None,
 ) -> SessionRow:
     """Create a Session row + its links. Caller commits.
 
     Media linking is handled separately via link_media_to_session — this
     function no longer accepts FileStorage uploads. Routes call the upload
-    endpoint to encrypt+store, then call this with the file_keys."""
+    endpoint to encrypt+store, then call this with the file_keys.
+
+    `link_thumb_keys` is a parallel list to `link_urls` of MediaFile
+    file_keys (one per URL, or "" for none) — the paste-screenshot
+    handler uploads each pasted image as a photo MediaFile and the form
+    submits its file_key alongside the URL."""
     person = db.get(Person, person_id)
     _validate_inputs(person, session_date)
 
@@ -136,7 +126,7 @@ def create_session(
     )
     db.add(session_row)
     db.flush()
-    _replace_links(db, session_row, link_urls)
+    _replace_links(db, session_row, link_urls, link_thumb_keys or [])
     return session_row
 
 
@@ -167,6 +157,7 @@ def update_session(
     ratings: dict[str, int],
     notes: str | None,
     link_urls: list[str],
+    link_thumb_keys: list[str] | None = None,
 ) -> SessionRow:
     session_row = get_session(db, session_id)
     if session_row is None:
@@ -176,7 +167,7 @@ def update_session(
     session_row.ratings_json = _serialize_ratings(ratings)
     session_row.notes = notes if (notes and notes.strip()) else None
 
-    _replace_links(db, session_row, link_urls)
+    _replace_links(db, session_row, link_urls, link_thumb_keys or [])
     return session_row
 
 

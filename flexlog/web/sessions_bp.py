@@ -12,8 +12,10 @@ from flask import (
     url_for,
 )
 
+from sqlalchemy import select
+
 from flexlog.db import get_db
-from flexlog.db.models import SessionLink
+from flexlog.db.models import MediaFile, SessionLink
 from flexlog.services.people import get_person
 from flexlog.services.sessions import (
     SessionNotFoundError,
@@ -68,8 +70,57 @@ def _parse_ratings_from_request() -> dict[str, int]:
 
 
 def _parse_link_urls_from_request() -> list[str]:
-    """Read link_urls[] in submitted order, drop blanks."""
+    """Read link_urls[] in submitted order, drop blanks. The parallel
+    list of thumb-keys is preserved alongside via
+    _parse_link_thumb_keys_from_request — keep both helpers in sync if
+    you change one."""
     return [u for u in request.form.getlist("link_urls") if (u or "").strip()]
+
+
+def _parse_link_thumb_keys_from_request() -> list[str]:
+    """Read link_thumb_keys[] in the same order as link_urls[], dropping
+    keys at positions whose URL is blank. The two lists must stay
+    aligned for `_replace_links` to pair them correctly."""
+    urls = request.form.getlist("link_urls")
+    keys = request.form.getlist("link_thumb_keys")
+    while len(keys) < len(urls):
+        keys.append("")
+    return [k for u, k in zip(urls, keys) if (u or "").strip()]
+
+
+def _build_existing_links_for_template(urls: list[str], keys: list[str]) -> list[dict]:
+    """Build the list of dicts the form template iterates: each entry
+    has url, thumb_key, and thumb_url (the rendered <img> src, or '').
+    Used by both the GET edit path (from session.links) and the form
+    re-render path (from the just-submitted form data)."""
+    db = get_db()
+    if len(keys) < len(urls):
+        keys = list(keys) + [""] * (len(urls) - len(keys))
+    nonempty = {(k or "").strip() for k in keys if (k or "").strip()}
+    mf_by_key: dict[str, MediaFile] = {}
+    if nonempty:
+        mf_by_key = {
+            mf.file_key: mf
+            for mf in db.execute(
+                select(MediaFile).where(MediaFile.file_key.in_(nonempty))
+            ).scalars()
+            if mf.media_type == "photo"
+        }
+    rows = []
+    for u, k in zip(urls, keys):
+        url = (u or "").strip()
+        if not url:
+            continue
+        key = (k or "").strip()
+        if key and key in mf_by_key:
+            rows.append({
+                "url": url,
+                "thumb_key": key,
+                "thumb_url": url_for("media.serve", file_key=key),
+            })
+        else:
+            rows.append({"url": url, "thumb_key": "", "thumb_url": ""})
+    return rows
 
 
 def _parse_keys_from_request() -> dict[str, list[str]]:
@@ -94,7 +145,7 @@ def new(person_id: str):
         person=person,
         rating_dimensions=enabled_rating_dimensions(),
         existing_ratings={},
-        existing_link_urls=[],
+        existing_links=[],
         existing_media={"photo": [], "audio": [], "video": []},
     )
 
@@ -104,6 +155,8 @@ def create(person_id: str):
     person = _person_or_404(person_id)
     form = SessionForm()
     rating_dimensions = enabled_rating_dimensions()
+    submitted_link_urls = _parse_link_urls_from_request()
+    submitted_link_thumb_keys = _parse_link_thumb_keys_from_request()
     if not form.validate_on_submit():
         return render_template(
             "sessions/new.html",
@@ -111,7 +164,9 @@ def create(person_id: str):
             person=person,
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_ratings_from_request(),
-            existing_link_urls=_parse_link_urls_from_request(),
+            existing_links=_build_existing_links_for_template(
+                submitted_link_urls, submitted_link_thumb_keys
+            ),
             existing_media={"photo": [], "audio": [], "video": []},
         ), 400
     db = get_db()
@@ -121,7 +176,8 @@ def create(person_id: str):
         session_date=form.session_date.data,
         ratings=_parse_ratings_from_request(),
         notes=(form.notes.data or None),
-        link_urls=_parse_link_urls_from_request(),
+        link_urls=submitted_link_urls,
+        link_thumb_keys=submitted_link_thumb_keys,
     )
     _created, unknown = link_media_to_session(
         db, session_row.id, _parse_keys_from_request()
@@ -140,7 +196,9 @@ def create(person_id: str):
             person=person,
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_ratings_from_request(),
-            existing_link_urls=_parse_link_urls_from_request(),
+            existing_links=_build_existing_links_for_template(
+                submitted_link_urls, submitted_link_thumb_keys
+            ),
             existing_media={"photo": [], "audio": [], "video": []},
             stale_keys=unknown,
         ), 422
@@ -188,7 +246,19 @@ def edit(session_id: str):
     enabled_ids = [d.id for d in enabled_rating_dimensions()]
     current_pairs, _archived = split_ratings(s.ratings_json, enabled_ids)
     existing_ratings = dict(current_pairs)
-    existing_link_urls = [li.url for li in s.links]
+    db = get_db()
+    existing_links = []
+    for li in s.links:
+        thumb_key = ""
+        thumb_url = ""
+        if li.thumbnail_media_id:
+            mf = db.get(MediaFile, li.thumbnail_media_id)
+            if mf is not None and mf.media_type == "photo":
+                thumb_key = mf.file_key
+                thumb_url = url_for("media.serve", file_key=mf.file_key)
+        existing_links.append({
+            "url": li.url, "thumb_key": thumb_key, "thumb_url": thumb_url,
+        })
     grouped: dict[str, list] = {"photo": [], "audio": [], "video": []}
     for j in s.media_joins:
         grouped[j.media_file.media_type].append(j.media_file)
@@ -199,7 +269,7 @@ def edit(session_id: str):
         session=s,
         rating_dimensions=enabled_rating_dimensions(),
         existing_ratings=existing_ratings,
-        existing_link_urls=existing_link_urls,
+        existing_links=existing_links,
         existing_media=grouped,
     )
 
@@ -209,6 +279,8 @@ def update(session_id: str):
     s = _session_or_404(session_id)
     form = SessionForm()
     rating_dimensions = enabled_rating_dimensions()
+    submitted_link_urls = _parse_link_urls_from_request()
+    submitted_link_thumb_keys = _parse_link_thumb_keys_from_request()
     if not form.validate_on_submit():
         grouped: dict[str, list] = {"photo": [], "audio": [], "video": []}
         for j in s.media_joins:
@@ -220,7 +292,9 @@ def update(session_id: str):
             session=s,
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_ratings_from_request(),
-            existing_link_urls=_parse_link_urls_from_request(),
+            existing_links=_build_existing_links_for_template(
+                submitted_link_urls, submitted_link_thumb_keys
+            ),
             existing_media=grouped,
         ), 400
     db = get_db()
@@ -230,7 +304,8 @@ def update(session_id: str):
             session_date=form.session_date.data,
             ratings=_parse_ratings_from_request(),
             notes=(form.notes.data or None),
-            link_urls=_parse_link_urls_from_request(),
+            link_urls=submitted_link_urls,
+            link_thumb_keys=submitted_link_thumb_keys,
         )
         unlink_media_from_session(db, session_id, _parse_unlinked_keys_from_request())
         _created, unknown = link_media_to_session(
@@ -256,7 +331,9 @@ def update(session_id: str):
             session=s,
             rating_dimensions=rating_dimensions,
             existing_ratings=_parse_ratings_from_request(),
-            existing_link_urls=_parse_link_urls_from_request(),
+            existing_links=_build_existing_links_for_template(
+                submitted_link_urls, submitted_link_thumb_keys
+            ),
             existing_media=grouped,
             stale_keys=unknown,
         ), 422

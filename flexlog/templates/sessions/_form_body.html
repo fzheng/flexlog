@@ -65,12 +65,23 @@
 
 <fieldset class="form-row links-row">
   <legend>{{ "links_heading" | ui }}</legend>
-  <ul class="link-list" data-link-list>
-    {% for url in existing_link_urls %}
-      <li class="link-row" data-link-row>
-        <a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a>
-        <button type="button" class="btn link-remove" data-link-remove>✕</button>
-        <input type="hidden" name="link_urls" value="{{ url }}">
+  <ul class="link-list link-form-list" data-link-list>
+    {% for li in existing_links %}
+      <li class="link-form-row" data-link-row tabindex="0">
+        <div class="link-thumb-slot" data-thumb-slot>
+          {% if li.thumb_url %}
+            <img class="link-thumb-image" src="{{ li.thumb_url }}" alt="" data-thumb-image>
+            <button type="button" class="btn link-thumb-clear" data-thumb-clear title="Remove thumbnail">✕</button>
+          {% else %}
+            <span class="link-thumb-placeholder" data-thumb-placeholder>Paste screenshot</span>
+          {% endif %}
+        </div>
+        <div class="link-row-meta">
+          <a href="{{ li.url }}" target="_blank" rel="noopener">{{ li.url }}</a>
+          <button type="button" class="btn link-remove" data-link-remove title="Remove link">✕</button>
+        </div>
+        <input type="hidden" name="link_urls" value="{{ li.url }}">
+        <input type="hidden" name="link_thumb_keys" value="{{ li.thumb_key or '' }}" data-thumb-key>
       </li>
     {% endfor %}
   </ul>
@@ -79,4 +90,5 @@
     <button type="button" class="btn" data-link-add>+ {{ "add_link" | ui }}</button>
   </div>
   <p class="link-add-error" data-link-error hidden></p>
+  <p class="link-paste-hint">Click a link to focus it, then paste (⌘V / Ctrl+V) a screenshot — or drop an image onto it — to attach as the thumbnail.</p>
 </fieldset>

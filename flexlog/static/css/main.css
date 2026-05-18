@@ -735,6 +735,93 @@ h3 {
   background: var(--bg-soft);
 }
 
+/* ---- Session-form link rows with paste-screenshot UI ---- */
+
+.link-form-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.link-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  border: 1px solid var(--rule);
+  outline: none;
+  cursor: pointer;
+}
+.link-form-row:focus,
+.link-form-row:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft, rgba(0,0,0,0.08));
+}
+.link-form-row.link-row-drop-target {
+  border-color: var(--accent);
+  background: var(--bg-soft);
+}
+.link-thumb-slot {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px dashed var(--rule);
+  background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.link-thumb-slot .link-thumb-image {
+  border: 0;
+  aspect-ratio: auto;
+  height: 100%;
+}
+.link-thumb-placeholder {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  padding: 0 0.5rem;
+}
+.link-thumb-clear {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  padding: 0 0.3rem;
+  line-height: 1.2;
+  font-size: 0.75rem;
+  background: rgba(255,255,255,0.85);
+}
+.link-thumb-uploading {
+  opacity: 0.5;
+}
+.link-thumb-error {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: #b00;
+  padding: 0.25rem;
+  text-align: center;
+}
+.link-row-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+.link-row-meta a {
+  flex: 1;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.link-paste-hint {
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 /* ------------------------------------------------------------ Library */
 
 .library-header {

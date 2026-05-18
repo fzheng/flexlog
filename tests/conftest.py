@@ -24,20 +24,6 @@ _FIXTURE_PASSWORD = "hunter2-test"  # tests use this; never used in production
 _FIXTURE_ARGON2_PARAMS = Argon2Params(time_cost=1, memory_kib=8, parallelism=1)
 
 
-@pytest.fixture(autouse=True)
-def _no_op_fetch_thumbnail(request, monkeypatch):
-    """By default, mock fetch_thumbnail to return None so integration
-    tests don't make real network calls. Tests that explicitly want
-    the real behavior can override via patch within the test."""
-    if "test_link_thumbnails" in request.node.nodeid:
-        # The dedicated thumbnail tests own their own patching.
-        return
-    monkeypatch.setattr(
-        "flexlog.services.sessions.fetch_thumbnail",
-        lambda url: None,
-    )
-
-
 @pytest.fixture
 def tmp_data_dir_no_config(tmp_path, monkeypatch):
     """An existing, writable data dir with NO config.json yet, NO encryption set up."""

@@ -145,25 +145,7 @@ function bindLinkSection() {
       errEl.hidden = false;
       return;
     }
-    const li = document.createElement("li");
-    li.className = "link-row";
-    li.dataset.linkRow = "";
-    const a = document.createElement("a");
-    a.href = raw;
-    a.target = "_blank";
-    a.rel = "noopener";
-    a.textContent = raw;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "btn link-remove";
-    btn.dataset.linkRemove = "";
-    btn.textContent = "✕";
-    const hid = document.createElement("input");
-    hid.type = "hidden";
-    hid.name = "link_urls";
-    hid.value = raw;
-    li.append(a, btn, hid);
-    list.appendChild(li);
+    list.appendChild(buildLinkRow(raw, "", ""));
     input.value = "";
   };
 
@@ -174,10 +156,191 @@ function bindLinkSection() {
       addLink();
     }
   });
+
   list.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("[data-link-remove]");
-    if (btn) btn.closest("[data-link-row]").remove();
+    if (ev.target.closest("[data-link-remove]")) {
+      ev.target.closest("[data-link-row]").remove();
+      return;
+    }
+    if (ev.target.closest("[data-thumb-clear]")) {
+      const row = ev.target.closest("[data-link-row]");
+      clearRowThumb(row);
+      return;
+    }
+    // Click anywhere else on the row → focus it so paste lands here.
+    const row = ev.target.closest("[data-link-row]");
+    if (row) row.focus();
   });
+
+  // Paste anywhere within the list — but only handle when the focused
+  // row contains the paste target (otherwise let normal text paste run).
+  list.addEventListener("paste", (ev) => {
+    const row = ev.target.closest("[data-link-row]");
+    if (!row) return;
+    const file = imageFileFromDataTransfer(ev.clipboardData);
+    if (!file) return;
+    ev.preventDefault();
+    uploadThumbForRow(row, file);
+  });
+
+  // Drag-and-drop image onto a row → same handler.
+  list.addEventListener("dragover", (ev) => {
+    const row = ev.target.closest("[data-link-row]");
+    if (!row) return;
+    if (!ev.dataTransfer.types.includes("Files")) return;
+    ev.preventDefault();
+    row.classList.add("link-row-drop-target");
+  });
+  list.addEventListener("dragleave", (ev) => {
+    const row = ev.target.closest("[data-link-row]");
+    if (row) row.classList.remove("link-row-drop-target");
+  });
+  list.addEventListener("drop", (ev) => {
+    const row = ev.target.closest("[data-link-row]");
+    if (!row) return;
+    const file = imageFileFromDataTransfer(ev.dataTransfer);
+    row.classList.remove("link-row-drop-target");
+    if (!file) return;
+    ev.preventDefault();
+    uploadThumbForRow(row, file);
+  });
+
+  // Pre-existing rows from the server: nothing to do — they already
+  // have their hidden inputs wired by the template.
+}
+
+function imageFileFromDataTransfer(dt) {
+  if (!dt) return null;
+  if (dt.files && dt.files.length) {
+    for (const f of dt.files) {
+      if (f.type && f.type.startsWith("image/")) return f;
+    }
+  }
+  if (dt.items && dt.items.length) {
+    for (const item of dt.items) {
+      if (item.kind === "file" && item.type && item.type.startsWith("image/")) {
+        return item.getAsFile();
+      }
+    }
+  }
+  return null;
+}
+
+function buildLinkRow(url, thumbKey, thumbUrl) {
+  const li = document.createElement("li");
+  li.className = "link-form-row";
+  li.dataset.linkRow = "";
+  li.tabIndex = 0;
+
+  const slot = document.createElement("div");
+  slot.className = "link-thumb-slot";
+  slot.dataset.thumbSlot = "";
+  renderThumbSlot(slot, thumbUrl);
+
+  const meta = document.createElement("div");
+  meta.className = "link-row-meta";
+  const a = document.createElement("a");
+  a.href = url;
+  a.target = "_blank";
+  a.rel = "noopener";
+  a.textContent = url;
+  const removeBtn = document.createElement("button");
+  removeBtn.type = "button";
+  removeBtn.className = "btn link-remove";
+  removeBtn.dataset.linkRemove = "";
+  removeBtn.title = "Remove link";
+  removeBtn.textContent = "✕";
+  meta.append(a, removeBtn);
+
+  const urlHid = document.createElement("input");
+  urlHid.type = "hidden";
+  urlHid.name = "link_urls";
+  urlHid.value = url;
+
+  const thumbHid = document.createElement("input");
+  thumbHid.type = "hidden";
+  thumbHid.name = "link_thumb_keys";
+  thumbHid.value = thumbKey || "";
+  thumbHid.dataset.thumbKey = "";
+
+  li.append(slot, meta, urlHid, thumbHid);
+  return li;
+}
+
+function renderThumbSlot(slot, thumbUrl) {
+  slot.innerHTML = "";
+  if (thumbUrl) {
+    const img = document.createElement("img");
+    img.className = "link-thumb-image";
+    img.dataset.thumbImage = "";
+    img.alt = "";
+    img.src = thumbUrl;
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "btn link-thumb-clear";
+    clear.dataset.thumbClear = "";
+    clear.title = "Remove thumbnail";
+    clear.textContent = "✕";
+    slot.append(img, clear);
+  } else {
+    const ph = document.createElement("span");
+    ph.className = "link-thumb-placeholder";
+    ph.dataset.thumbPlaceholder = "";
+    ph.textContent = "Paste screenshot";
+    slot.appendChild(ph);
+  }
+}
+
+function uploadThumbForRow(row, file) {
+  const slot = row.querySelector("[data-thumb-slot]");
+  const hid = row.querySelector("[data-thumb-key]");
+  slot.classList.add("link-thumb-uploading");
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/sessions/upload");
+  xhr.setRequestHeader("X-CSRFToken", CSRF);
+  xhr.onload = () => {
+    slot.classList.remove("link-thumb-uploading");
+    if (xhr.status !== 200) {
+      flashRowError(row, parseError(xhr));
+      return;
+    }
+    let payload;
+    try { payload = JSON.parse(xhr.responseText); }
+    catch { flashRowError(row, "bad response"); return; }
+    hid.value = payload.file_key;
+    renderThumbSlot(slot, `/media/${encodeURIComponent(payload.file_key)}`);
+  };
+  xhr.onerror = () => {
+    slot.classList.remove("link-thumb-uploading");
+    flashRowError(row, "network error");
+  };
+
+  const fd = new FormData();
+  fd.append("kind", "photo");
+  // Give it a name so the server's filename-based extension logic has
+  // something to work with — pasted images otherwise come through as
+  // `image.png` with no name.
+  fd.append("file", file, file.name || "pasted-screenshot.png");
+  xhr.send(fd);
+}
+
+function clearRowThumb(row) {
+  const slot = row.querySelector("[data-thumb-slot]");
+  const hid = row.querySelector("[data-thumb-key]");
+  hid.value = "";
+  renderThumbSlot(slot, "");
+}
+
+function flashRowError(row, msg) {
+  const slot = row.querySelector("[data-thumb-slot]");
+  slot.innerHTML = "";
+  const err = document.createElement("span");
+  err.className = "link-thumb-error";
+  err.textContent = "✗ " + msg;
+  slot.appendChild(err);
+  // After 3s, fall back to the placeholder so the user can retry.
+  setTimeout(() => renderThumbSlot(slot, ""), 3000);
 }
 
 function hasUnsavedUploads() {
