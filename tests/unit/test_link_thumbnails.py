@@ -165,7 +165,7 @@ def test_extract_resolves_relative_og_image():
 def test_fetch_html_returns_soup_on_success():
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get") as get_mock:
-        get_mock.return_value.__enter__.return_value = _mock_response(
+        get_mock.return_value = _mock_response(
             text="<html><head><title>x</title></head></html>"
         )
         result = _fetch_html("https://example.com/article")
@@ -191,7 +191,7 @@ def test_fetch_html_truncates_oversize():
     big_html = "<html>" + ("x" * (_MAX_HTML_BYTES + 100)) + "</html>"
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get") as get_mock:
-        get_mock.return_value.__enter__.return_value = _mock_response(text=big_html)
+        get_mock.return_value = _mock_response(text=big_html)
         assert _fetch_html("https://example.com/x") is None
 
 
@@ -203,7 +203,7 @@ def test_fetch_html_returns_none_on_4xx():
         resp.raise_for_status = MagicMock(
             side_effect=requests.exceptions.HTTPError("404")
         )
-        get_mock.return_value.__enter__.return_value = resp
+        get_mock.return_value = resp
         assert _fetch_html("https://example.com/x") is None
 
 
@@ -225,7 +225,7 @@ def test_fetch_image_returns_bytes_on_success():
     png = _make_png_bytes(100, 100)
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get") as get_mock:
-        get_mock.return_value.__enter__.return_value = _mock_response(content=png)
+        get_mock.return_value = _mock_response(content=png)
         result = _fetch_image("https://example.com/og.png")
     assert result == png
 
@@ -241,7 +241,7 @@ def test_fetch_image_returns_none_on_oversize():
     big = b"\x00" * (_MAX_IMAGE_BYTES + 100)
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get") as get_mock:
-        get_mock.return_value.__enter__.return_value = _mock_response(content=big)
+        get_mock.return_value = _mock_response(content=big)
         assert _fetch_image("https://example.com/big.png") is None
 
 
@@ -318,12 +318,9 @@ def test_fetch_thumbnail_happy_path_og_image():
     call_count = {"n": 0}
     def fake_get(url, **_kw):
         call_count["n"] += 1
-        ctx = MagicMock()
         if "og.png" in url:
-            ctx.__enter__.return_value = _mock_response(content=png)
-        else:
-            ctx.__enter__.return_value = _mock_response(text=html)
-        return ctx
+            return _mock_response(content=png)
+        return _mock_response(text=html)
 
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get", side_effect=fake_get):
@@ -345,12 +342,9 @@ def test_fetch_thumbnail_favicon_fallback():
     favicon = _make_png_bytes(64, 64)
 
     def fake_get(url, **_kw):
-        ctx = MagicMock()
         if "favicon.ico" in url:
-            ctx.__enter__.return_value = _mock_response(content=favicon)
-        else:
-            ctx.__enter__.return_value = _mock_response(text=html)
-        return ctx
+            return _mock_response(content=favicon)
+        return _mock_response(text=html)
 
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get", side_effect=fake_get):
@@ -380,12 +374,10 @@ def test_fetch_thumbnail_returns_none_when_image_fetch_fails():
     </head></html>"""
 
     def fake_get(url, **_kw):
-        ctx = MagicMock()
         if "og.png" in url:
             import requests
             raise requests.exceptions.HTTPError("500")
-        ctx.__enter__.return_value = _mock_response(text=html)
-        return ctx
+        return _mock_response(text=html)
 
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get", side_effect=fake_get):
@@ -399,13 +391,115 @@ def test_fetch_thumbnail_returns_none_when_image_undecodable():
     </head></html>"""
 
     def fake_get(url, **_kw):
-        ctx = MagicMock()
         if "og.png" in url:
-            ctx.__enter__.return_value = _mock_response(content=b"not an image")
-        else:
-            ctx.__enter__.return_value = _mock_response(text=html)
-        return ctx
+            return _mock_response(content=b"not an image")
+        return _mock_response(text=html)
 
     with patch("socket.gethostbyname", return_value="93.184.216.34"), \
          patch("requests.get", side_effect=fake_get):
         assert fetch_thumbnail("https://example.com/article") is None
+
+
+def test_safe_get_follows_public_redirect():
+    """Public URL -> 302 -> another public URL succeeds (follows once)."""
+    from flexlog.services.link_thumbnails import _safe_get
+
+    call_count = {"n": 0}
+    def fake_get(url, **_kw):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            resp = MagicMock()
+            resp.status_code = 302
+            resp.headers = {"Location": "https://example.com/dest"}
+            resp.close = MagicMock()
+            return resp
+        else:
+            return _mock_response(text="<html><title>dest</title></html>")
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        resp = _safe_get("https://example.com/start", timeout=5.0, headers={})
+    assert resp is not None
+    assert call_count["n"] == 2
+
+
+def test_safe_get_blocks_redirect_to_private_ip():
+    """Public URL -> 302 -> 169.254.169.254 is rejected. The second
+    requests.get should NEVER be called (the safety check fires first)."""
+    from flexlog.services.link_thumbnails import _safe_get
+
+    def fake_gethostbyname(host):
+        # First call (start): public IP. Second call (target): metadata.
+        return "93.184.216.34" if "start" in host or host == "example.com" else "169.254.169.254"
+
+    call_count = {"n": 0}
+    def fake_get(url, **_kw):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            resp = MagicMock()
+            resp.status_code = 302
+            resp.headers = {"Location": "http://metadata.example/foo"}
+            resp.close = MagicMock()
+            return resp
+        # If we get here, the SSRF guard FAILED.
+        raise AssertionError("requests.get was called for the redirect target")
+
+    with patch("socket.gethostbyname", side_effect=fake_gethostbyname), \
+         patch("requests.get", side_effect=fake_get):
+        resp = _safe_get("https://example.com/start", timeout=5.0, headers={})
+    assert resp is None
+    assert call_count["n"] == 1  # Only the first request was made
+
+
+def test_safe_get_caps_redirect_chain():
+    """Redirect chain > _MAX_REDIRECTS aborts."""
+    from flexlog.services.link_thumbnails import _safe_get, _MAX_REDIRECTS
+
+    call_count = {"n": 0}
+    def fake_get(url, **_kw):
+        call_count["n"] += 1
+        resp = MagicMock()
+        resp.status_code = 302
+        resp.headers = {"Location": f"https://example.com/hop{call_count['n']}"}
+        resp.close = MagicMock()
+        return resp
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        resp = _safe_get("https://example.com/start", timeout=5.0, headers={})
+
+    assert resp is None
+    # Made exactly _MAX_REDIRECTS + 1 requests before giving up
+    # (initial + _MAX_REDIRECTS redirects)
+    assert call_count["n"] == _MAX_REDIRECTS + 1
+
+
+def test_safe_get_returns_none_on_unsafe_initial_url():
+    """Initial URL fails safety check -> no requests.get call at all."""
+    from flexlog.services.link_thumbnails import _safe_get
+
+    with patch("socket.gethostbyname", return_value="10.0.0.5"), \
+         patch("requests.get", side_effect=AssertionError("should not be called")):
+        resp = _safe_get("http://internal/x", timeout=5.0, headers={})
+    assert resp is None
+
+
+def test_safe_get_returns_none_on_4xx():
+    """Non-redirect non-2xx -> raise_for_status fires -> return None."""
+    from flexlog.services.link_thumbnails import _safe_get
+
+    def fake_get(url, **_kw):
+        resp = MagicMock()
+        resp.status_code = 404
+        resp.headers = {}
+        resp.close = MagicMock()
+        resp.raise_for_status = MagicMock(
+            side_effect=requests.exceptions.HTTPError("404")
+        )
+        return resp
+
+    import requests
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        resp = _safe_get("https://example.com/x", timeout=5.0, headers={})
+    assert resp is None

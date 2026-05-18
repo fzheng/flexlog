@@ -66,20 +66,64 @@ def _is_safe_url(url) -> bool:
     return True
 
 
+def _safe_get(
+    url: str,
+    timeout: float,
+    headers: dict,
+) -> requests.Response | None:
+    """GET with SSRF-safe redirect handling.
+
+    Calls _is_safe_url on the initial URL AND every redirect target
+    before following. Caps redirects at _MAX_REDIRECTS. Returns a
+    Response object with `stream=True` (caller is responsible for
+    closing or using as a context manager). Returns None if any URL
+    in the chain fails the safety check, the redirect cap is hit,
+    or the request raises.
+    """
+    seen = 0
+    current = url
+    while True:
+        if not _is_safe_url(current):
+            return None
+        try:
+            resp = requests.get(
+                current,
+                timeout=timeout,
+                allow_redirects=False,  # we follow manually
+                stream=True,
+                headers=headers,
+            )
+        except (requests.RequestException, ValueError):
+            return None
+        if resp.status_code in (301, 302, 303, 307, 308):
+            seen += 1
+            loc = resp.headers.get("Location")
+            resp.close()
+            if seen > _MAX_REDIRECTS or not loc:
+                return None
+            current = urljoin(current, loc)
+            continue
+        # Non-redirect: return the live response (caller closes it).
+        try:
+            resp.raise_for_status()
+        except requests.RequestException:
+            resp.close()
+            return None
+        return resp
+
+
 def _fetch_html(url: str) -> BeautifulSoup | None:
     """GET the URL with safety + size + redirect caps. Returns parsed
     BeautifulSoup or None on any failure."""
-    if not _is_safe_url(url):
+    resp = _safe_get(
+        url,
+        timeout=_HTML_TIMEOUT_S,
+        headers={"User-Agent": _UA, "Accept": "text/html,*/*;q=0.8"},
+    )
+    if resp is None:
         return None
     try:
-        with requests.get(
-            url,
-            timeout=_HTML_TIMEOUT_S,
-            allow_redirects=True,
-            stream=True,
-            headers={"User-Agent": _UA, "Accept": "text/html,*/*;q=0.8"},
-        ) as resp:
-            resp.raise_for_status()
+        with resp:
             # Read up to _MAX_HTML_BYTES + 1; if we hit the cap, give up.
             buf = bytearray()
             for chunk in resp.iter_content(chunk_size=8192):
@@ -117,17 +161,15 @@ def _extract_image_url(soup: BeautifulSoup, base_url: str) -> str | None:
 
 def _fetch_image(url: str) -> bytes | None:
     """GET the image URL with safety + size caps. Returns raw bytes or None."""
-    if not _is_safe_url(url):
+    resp = _safe_get(
+        url,
+        timeout=_IMAGE_TIMEOUT_S,
+        headers={"User-Agent": _UA, "Accept": "image/*"},
+    )
+    if resp is None:
         return None
     try:
-        with requests.get(
-            url,
-            timeout=_IMAGE_TIMEOUT_S,
-            allow_redirects=True,
-            stream=True,
-            headers={"User-Agent": _UA, "Accept": "image/*"},
-        ) as resp:
-            resp.raise_for_status()
+        with resp:
             buf = bytearray()
             for chunk in resp.iter_content(chunk_size=16384):
                 if chunk:
