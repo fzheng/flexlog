@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flexlog"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local-only single-user 1v1 session journal"
 requires-python = ">=3.11"
 dependencies = [
@@ -16,8 +16,7 @@ dependencies = [
     "sqlcipher3>=0.6,<1",
     "Pillow>=10,<13",
     "pillow-heif>=0.16,<2",
-    "requests>=2.31,<3.0",
-    "beautifulsoup4>=4.12,<5.0",
+    "playwright>=1.50,<2.0",
 ]
 
 [project.optional-dependencies]

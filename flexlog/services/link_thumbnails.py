@@ -1,32 +1,26 @@
-"""Open Graph image / favicon fetcher for SessionLink thumbnails.
+"""Page-screenshot thumbnail fetcher for SessionLink thumbnails.
 
 Public API: fetch_thumbnail(url) -> bytes | None
 
-Every failure path returns None. The caller (services.sessions
-_fetch_and_store_thumbnail) treats None as "no thumbnail" without
-blocking the session save.
+Launches a headless Chromium via Playwright, navigates to the URL,
+captures a viewport screenshot, resizes to ≤400px wide, and returns
+the JPEG bytes. Every failure path returns None. The caller
+(services.sessions._fetch_and_store_thumbnail) treats None as
+"no thumbnail" without blocking the session save.
 """
 from __future__ import annotations
 
 import io
 import ipaddress
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
-import requests
-from bs4 import BeautifulSoup
 from PIL import Image
 
 
-_UA = (
-    "Mozilla/5.0 (compatible; flexlog-link-preview/1.0; "
-    "+https://github.com/fzheng/flexlog)"
-)
-_HTML_TIMEOUT_S = 5.0
-_IMAGE_TIMEOUT_S = 5.0
-_MAX_REDIRECTS = 3
-_MAX_HTML_BYTES = 1 * 1024 * 1024     # 1 MiB
-_MAX_IMAGE_BYTES = 10 * 1024 * 1024   # 10 MiB
+_NAV_TIMEOUT_MS = 10_000
+_VIEWPORT_WIDTH = 1280
+_VIEWPORT_HEIGHT = 800
 _TARGET_MAX_WIDTH = 400
 _JPEG_QUALITY = 85
 
@@ -66,118 +60,50 @@ def _is_safe_url(url) -> bool:
     return True
 
 
-def _safe_get(
-    url: str,
-    timeout: float,
-    headers: dict,
-) -> requests.Response | None:
-    """GET with SSRF-safe redirect handling.
+def _screenshot_url(url: str) -> bytes | None:
+    """Launch Chromium via Playwright, navigate to `url`, capture a
+    viewport-sized PNG screenshot, return the bytes. Returns None on any
+    failure (DNS, timeout, JS crash, redirect to private IP, etc.).
 
-    Calls _is_safe_url on the initial URL AND every redirect target
-    before following. Caps redirects at _MAX_REDIRECTS. Returns a
-    Response object with `stream=True` (caller is responsible for
-    closing or using as a context manager). Returns None if any URL
-    in the chain fails the safety check, the redirect cap is hit,
-    or the request raises.
-    """
-    seen = 0
-    current = url
-    while True:
-        if not _is_safe_url(current):
-            return None
-        try:
-            resp = requests.get(
-                current,
-                timeout=timeout,
-                allow_redirects=False,  # we follow manually
-                stream=True,
-                headers=headers,
-            )
-        except (requests.RequestException, ValueError):
-            return None
-        if resp.status_code in (301, 302, 303, 307, 308):
-            seen += 1
-            loc = resp.headers.get("Location")
-            resp.close()
-            if seen > _MAX_REDIRECTS or not loc:
-                return None
-            current = urljoin(current, loc)
-            continue
-        # Non-redirect: return the live response (caller closes it).
-        try:
-            resp.raise_for_status()
-        except requests.RequestException:
-            resp.close()
-            return None
-        return resp
-
-
-def _fetch_html(url: str) -> BeautifulSoup | None:
-    """GET the URL with safety + size + redirect caps. Returns parsed
-    BeautifulSoup or None on any failure."""
-    resp = _safe_get(
-        url,
-        timeout=_HTML_TIMEOUT_S,
-        headers={"User-Agent": _UA, "Accept": "text/html,*/*;q=0.8"},
-    )
-    if resp is None:
-        return None
+    Reuses no browser state — each call launches and closes its own
+    Chromium. ~1-3s per call after the first cold launch."""
     try:
-        with resp:
-            # Read up to _MAX_HTML_BYTES + 1; if we hit the cap, give up.
-            buf = bytearray()
-            for chunk in resp.iter_content(chunk_size=8192):
-                if chunk:
-                    buf.extend(chunk)
-                    if len(buf) > _MAX_HTML_BYTES:
-                        return None
-            return BeautifulSoup(buf.decode("utf-8", errors="replace"), "html.parser")
-    except (requests.RequestException, ValueError):
+        from playwright.sync_api import sync_playwright, Error as PlaywrightError
+    except ImportError:
         return None
 
-
-def _extract_image_url(soup: BeautifulSoup, base_url: str) -> str | None:
-    """Walk the parsed HTML for og:image -> twitter:image -> <link rel=icon>
-    -> fallback to base_url's /favicon.ico. Resolves relative URLs."""
-    # 1. og:image
-    og = soup.find("meta", attrs={"property": "og:image"})
-    if og and og.get("content"):
-        return urljoin(base_url, og["content"].strip())
-    # 2. twitter:image
-    tw = soup.find("meta", attrs={"name": "twitter:image"})
-    if tw and tw.get("content"):
-        return urljoin(base_url, tw["content"].strip())
-    # 3. <link rel="icon"> or apple-touch-icon
-    for rel in ("icon", "shortcut icon", "apple-touch-icon"):
-        link = soup.find("link", attrs={"rel": rel})
-        if link and link.get("href"):
-            return urljoin(base_url, link["href"].strip())
-    # 4. Default favicon path on the same origin
-    parsed = urlparse(base_url)
-    if parsed.scheme and parsed.netloc:
-        return f"{parsed.scheme}://{parsed.netloc}/favicon.ico"
-    return None
-
-
-def _fetch_image(url: str) -> bytes | None:
-    """GET the image URL with safety + size caps. Returns raw bytes or None."""
-    resp = _safe_get(
-        url,
-        timeout=_IMAGE_TIMEOUT_S,
-        headers={"User-Agent": _UA, "Accept": "image/*"},
-    )
-    if resp is None:
-        return None
     try:
-        with resp:
-            buf = bytearray()
-            for chunk in resp.iter_content(chunk_size=16384):
-                if chunk:
-                    buf.extend(chunk)
-                    if len(buf) > _MAX_IMAGE_BYTES:
-                        return None
-            return bytes(buf)
-    except (requests.RequestException, ValueError):
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                context = browser.new_context(
+                    viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT},
+                )
+                page = context.new_page()
+                try:
+                    page.goto(
+                        url,
+                        timeout=_NAV_TIMEOUT_MS,
+                        wait_until="domcontentloaded",
+                    )
+                except PlaywrightError:
+                    return None
+
+                # Defense: if Chromium followed a redirect to a private
+                # IP, abort. (Initial URL was already safety-checked by
+                # the caller; this catches redirect bypasses.)
+                final_url = page.url
+                if final_url != url and not _is_safe_url(final_url):
+                    return None
+
+                try:
+                    png = page.screenshot(type="png", full_page=False)
+                except PlaywrightError:
+                    return None
+                return png
+            finally:
+                browser.close()
+    except Exception:
         return None
 
 
@@ -210,22 +136,15 @@ def _to_jpeg(raw_bytes: bytes) -> bytes | None:
 def fetch_thumbnail(url: str) -> bytes | None:
     """Return JPEG bytes for the link's thumbnail, or None on any failure.
 
-    Tries in order:
-      1. Open Graph image (<meta property="og:image">)
-      2. Twitter card image (<meta name="twitter:image">)
-      3. Favicon (<link rel="icon"> or /favicon.ico)
+    Captures a viewport screenshot of the page via headless Chromium,
+    resizes to ≤400px wide, transcodes to JPEG q=85.
     """
     try:
-        soup = _fetch_html(url)
-        if soup is None:
+        if not _is_safe_url(url):
             return None
-        image_url = _extract_image_url(soup, url)
-        if not image_url:
+        png = _screenshot_url(url)
+        if png is None:
             return None
-        raw = _fetch_image(image_url)
-        if raw is None:
-            return None
-        return _to_jpeg(raw)
+        return _to_jpeg(png)
     except Exception:
-        # Belt-and-braces: anything we missed in the helpers' guards.
         return None

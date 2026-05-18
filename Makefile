@@ -28,6 +28,7 @@ $(VENV):
 $(INSTALL_MARK): pyproject.toml | $(VENV)
 	$(BIN)/pip install --upgrade pip
 	$(BIN)/pip install -e ".[dev]"
+	$(BIN)/playwright install chromium
 	@touch $@
 
 install: $(INSTALL_MARK)
