@@ -301,3 +301,111 @@ def test_to_jpeg_returns_none_on_garbage():
 
 def test_to_jpeg_returns_none_on_empty():
     assert _to_jpeg(b"") is None
+
+
+from flexlog.services.link_thumbnails import fetch_thumbnail
+
+
+def test_fetch_thumbnail_happy_path_og_image():
+    """HTML has og:image → fetch HTML → fetch image → transcode → JPEG bytes."""
+    from PIL import Image
+
+    html = """<html><head>
+      <meta property="og:image" content="https://example.com/og.png">
+    </head></html>"""
+    png = _make_png_bytes(800, 600)
+
+    call_count = {"n": 0}
+    def fake_get(url, **_kw):
+        call_count["n"] += 1
+        ctx = MagicMock()
+        if "og.png" in url:
+            ctx.__enter__.return_value = _mock_response(content=png)
+        else:
+            ctx.__enter__.return_value = _mock_response(text=html)
+        return ctx
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        result = fetch_thumbnail("https://example.com/article")
+
+    assert result is not None
+    assert call_count["n"] == 2  # one HTML fetch + one image fetch
+    out = Image.open(io.BytesIO(result))
+    assert out.format == "JPEG"
+    # 800-wide source resized to 400-wide
+    assert out.size == (400, 300)
+
+
+def test_fetch_thumbnail_favicon_fallback():
+    """HTML has no image meta → fetches /favicon.ico → succeeds."""
+    from PIL import Image
+
+    html = "<html><head><title>x</title></head></html>"
+    favicon = _make_png_bytes(64, 64)
+
+    def fake_get(url, **_kw):
+        ctx = MagicMock()
+        if "favicon.ico" in url:
+            ctx.__enter__.return_value = _mock_response(content=favicon)
+        else:
+            ctx.__enter__.return_value = _mock_response(text=html)
+        return ctx
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        result = fetch_thumbnail("https://example.com/article")
+
+    assert result is not None
+    out = Image.open(io.BytesIO(result))
+    assert out.format == "JPEG"
+
+
+def test_fetch_thumbnail_returns_none_when_unsafe_url():
+    with patch("socket.gethostbyname", return_value="10.0.0.5"):
+        assert fetch_thumbnail("http://internal/x") is None
+
+
+def test_fetch_thumbnail_returns_none_when_html_fetch_fails():
+    import requests
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=requests.exceptions.Timeout("slow")):
+        assert fetch_thumbnail("https://example.com/article") is None
+
+
+def test_fetch_thumbnail_returns_none_when_image_fetch_fails():
+    """HTML succeeds but the image URL 500s — still None, no crash."""
+    html = """<html><head>
+      <meta property="og:image" content="https://example.com/og.png">
+    </head></html>"""
+
+    def fake_get(url, **_kw):
+        ctx = MagicMock()
+        if "og.png" in url:
+            import requests
+            raise requests.exceptions.HTTPError("500")
+        ctx.__enter__.return_value = _mock_response(text=html)
+        return ctx
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        assert fetch_thumbnail("https://example.com/article") is None
+
+
+def test_fetch_thumbnail_returns_none_when_image_undecodable():
+    """HTML succeeds, image fetch succeeds, but bytes aren't an image."""
+    html = """<html><head>
+      <meta property="og:image" content="https://example.com/og.png">
+    </head></html>"""
+
+    def fake_get(url, **_kw):
+        ctx = MagicMock()
+        if "og.png" in url:
+            ctx.__enter__.return_value = _mock_response(content=b"not an image")
+        else:
+            ctx.__enter__.return_value = _mock_response(text=html)
+        return ctx
+
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=fake_get):
+        assert fetch_thumbnail("https://example.com/article") is None

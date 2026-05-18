@@ -163,3 +163,27 @@ def _to_jpeg(raw_bytes: bytes) -> bytes | None:
     except Exception:
         return None
     return out.getvalue()
+
+
+def fetch_thumbnail(url: str) -> bytes | None:
+    """Return JPEG bytes for the link's thumbnail, or None on any failure.
+
+    Tries in order:
+      1. Open Graph image (<meta property="og:image">)
+      2. Twitter card image (<meta name="twitter:image">)
+      3. Favicon (<link rel="icon"> or /favicon.ico)
+    """
+    try:
+        soup = _fetch_html(url)
+        if soup is None:
+            return None
+        image_url = _extract_image_url(soup, url)
+        if not image_url:
+            return None
+        raw = _fetch_image(image_url)
+        if raw is None:
+            return None
+        return _to_jpeg(raw)
+    except Exception:
+        # Belt-and-braces: anything we missed in the helpers' guards.
+        return None
