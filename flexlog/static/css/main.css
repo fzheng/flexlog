@@ -725,14 +725,25 @@ h3 {
 }
 .photo-thumb:hover img { transform: scale(1.04); }
 
+.link-thumb-anchor {
+  display: block;
+  cursor: zoom-in;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  background: var(--bg-soft);
+}
+.link-thumb-anchor:hover .link-thumb-image {
+  transform: scale(1.04);
+}
 .link-thumb-image {
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
-  border: 1px solid var(--rule);
+  border: 0;
   border-radius: 0;
   background: var(--bg-soft);
+  transition: transform 0.2s ease;
 }
 
 /* ---- Session-form link rows with paste-screenshot UI ---- */

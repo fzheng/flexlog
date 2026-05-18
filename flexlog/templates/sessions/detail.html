@@ -15,7 +15,7 @@
   <section class="links-display">
     <h3>{{ "links_heading" | ui }}</h3>
     {% if session.links %}
-      <ul class="link-list">
+      <ul id="link-thumb-gallery" class="link-list">
         {% for link in session.links %}
           {% include "_partials/link_row_display.html" %}
         {% endfor %}
