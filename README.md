@@ -61,6 +61,13 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.5.0 — Link Thumbnails (Open Graph image auto-fetch)
+
+- **Each link gets a thumbnail.** On session save, the server fetches each link's `<meta property="og:image">` (with `twitter:image` and favicon fallbacks), downloads it, resizes to 400px wide, and stores it encrypted via the existing media pipeline. The session detail page already renders the thumbnail next to each link.
+- **URL-keyed preservation.** Reordering links no longer re-fetches their thumbnails. Only genuinely new-or-changed URLs trigger a fresh fetch.
+- **SSRF guard.** The fetcher rejects private IPs, loopback, link-local (incl. the AWS metadata service), multicast, and reserved address ranges. It also enforces a 5s timeout, 3-redirect cap, 1 MiB HTML body cap, and 10 MiB image cap per fetch.
+- **Best-effort.** A failed fetch (DNS error, timeout, no og:image, bad image) silently saves the link without a thumbnail. Saves never block on the fetcher.
+
 ## v0.4.0 — Weighted Overall Ratings + Star Input
 
 - **Weighted overall rating per session.** Each rating dimension now has a `weight: float` in config. The session overall is the weighted average of its sub-ratings, displayed as a 1-decimal number (e.g. `4.3 / 5`).
@@ -143,6 +150,8 @@ Requires Python 3.11+. If your default `python3` is older, pass
 `PYTHON=python3.13` (or whichever) to `make install`.
 
 ## Privacy & data
+
+> **Note on outbound network from v0.5.0:** when you save a session containing a link, the server fetches that URL once to pull the page's preview image. The link host sees the request; nothing leaves your machine except contact with the exact URLs you added.
 
 - **Single-user, local-only.** No accounts, no roles, no multi-user.
   This is by design — the data model assumes one owner.
