@@ -8,12 +8,14 @@ blocking the session save.
 """
 from __future__ import annotations
 
+import io
 import ipaddress
 import socket
 from urllib.parse import urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from PIL import Image
 
 
 _UA = (
@@ -111,3 +113,53 @@ def _extract_image_url(soup: BeautifulSoup, base_url: str) -> str | None:
     if parsed.scheme and parsed.netloc:
         return f"{parsed.scheme}://{parsed.netloc}/favicon.ico"
     return None
+
+
+def _fetch_image(url: str) -> bytes | None:
+    """GET the image URL with safety + size caps. Returns raw bytes or None."""
+    if not _is_safe_url(url):
+        return None
+    try:
+        with requests.get(
+            url,
+            timeout=_IMAGE_TIMEOUT_S,
+            allow_redirects=True,
+            stream=True,
+            headers={"User-Agent": _UA, "Accept": "image/*"},
+        ) as resp:
+            resp.raise_for_status()
+            buf = bytearray()
+            for chunk in resp.iter_content(chunk_size=16384):
+                if chunk:
+                    buf.extend(chunk)
+                    if len(buf) > _MAX_IMAGE_BYTES:
+                        return None
+            return bytes(buf)
+    except (requests.RequestException, ValueError):
+        return None
+
+
+def _to_jpeg(raw_bytes: bytes) -> bytes | None:
+    """Open `raw_bytes` with Pillow, resize to ≤400px wide preserving
+    aspect, transcode to JPEG q=85. Returns the JPEG bytes or None."""
+    if not raw_bytes:
+        return None
+    try:
+        img = Image.open(io.BytesIO(raw_bytes))
+        img.load()
+    except Exception:
+        return None
+    if img.mode not in ("RGB", "L", "CMYK"):
+        img = img.convert("RGB")
+    if img.width > _TARGET_MAX_WIDTH:
+        new_height = max(1, round(img.height * _TARGET_MAX_WIDTH / img.width))
+        img = img.resize(
+            (_TARGET_MAX_WIDTH, new_height),
+            Image.Resampling.LANCZOS,
+        )
+    out = io.BytesIO()
+    try:
+        img.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+    except Exception:
+        return None
+    return out.getvalue()

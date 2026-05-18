@@ -205,3 +205,99 @@ def test_fetch_html_returns_none_on_4xx():
         )
         get_mock.return_value.__enter__.return_value = resp
         assert _fetch_html("https://example.com/x") is None
+
+
+import io
+
+from flexlog.services.link_thumbnails import _fetch_image, _to_jpeg
+
+
+def _make_png_bytes(width: int, height: int, color=(200, 50, 80)) -> bytes:
+    """Build PNG bytes with Pillow for testing the transcode helper."""
+    from PIL import Image
+    img = Image.new("RGB", (width, height), color=color)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_fetch_image_returns_bytes_on_success():
+    png = _make_png_bytes(100, 100)
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get") as get_mock:
+        get_mock.return_value.__enter__.return_value = _mock_response(content=png)
+        result = _fetch_image("https://example.com/og.png")
+    assert result == png
+
+
+def test_fetch_image_returns_none_on_unsafe_url():
+    with patch("socket.gethostbyname", return_value="10.0.0.5"):
+        assert _fetch_image("http://internal/img.png") is None
+
+
+def test_fetch_image_returns_none_on_oversize():
+    """Image > _MAX_IMAGE_BYTES is rejected."""
+    from flexlog.services.link_thumbnails import _MAX_IMAGE_BYTES
+    big = b"\x00" * (_MAX_IMAGE_BYTES + 100)
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get") as get_mock:
+        get_mock.return_value.__enter__.return_value = _mock_response(content=big)
+        assert _fetch_image("https://example.com/big.png") is None
+
+
+def test_fetch_image_returns_none_on_http_error():
+    import requests
+    with patch("socket.gethostbyname", return_value="93.184.216.34"), \
+         patch("requests.get", side_effect=requests.exceptions.RequestException("boom")):
+        assert _fetch_image("https://example.com/img.png") is None
+
+
+def test_to_jpeg_passes_through_small_image():
+    """200x150 input stays 200x150 (no upscale)."""
+    from PIL import Image
+    png = _make_png_bytes(200, 150)
+    jpeg = _to_jpeg(png)
+    assert jpeg is not None
+    out = Image.open(io.BytesIO(jpeg))
+    assert out.size == (200, 150)
+    assert out.format == "JPEG"
+
+
+def test_to_jpeg_resizes_wide_image_preserving_aspect():
+    """2000x1000 input → 400x200 output."""
+    from PIL import Image
+    png = _make_png_bytes(2000, 1000)
+    jpeg = _to_jpeg(png)
+    assert jpeg is not None
+    out = Image.open(io.BytesIO(jpeg))
+    assert out.size == (400, 200)
+
+
+def test_to_jpeg_resizes_2000x1500():
+    """2000x1500 → 400x300."""
+    from PIL import Image
+    png = _make_png_bytes(2000, 1500)
+    jpeg = _to_jpeg(png)
+    assert jpeg is not None
+    out = Image.open(io.BytesIO(jpeg))
+    assert out.size == (400, 300)
+
+
+def test_to_jpeg_converts_rgba_to_rgb():
+    """RGBA PNG (with transparency) saves as JPEG without crashing."""
+    from PIL import Image
+    img = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    jpeg = _to_jpeg(buf.getvalue())
+    assert jpeg is not None
+    out = Image.open(io.BytesIO(jpeg))
+    assert out.mode == "RGB"
+
+
+def test_to_jpeg_returns_none_on_garbage():
+    assert _to_jpeg(b"this is not an image") is None
+
+
+def test_to_jpeg_returns_none_on_empty():
+    assert _to_jpeg(b"") is None
