@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from flexlog.db.models import Person, Session as SessionRow, SessionLink
+from flexlog.services.link_thumbnails import fetch_thumbnail
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -46,22 +47,54 @@ def _serialize_ratings(ratings: dict[str, int]) -> str:
     return json.dumps(dict(sorted(ratings.items())))
 
 
+def _fetch_and_store_thumbnail(db: Session, url: str) -> str | None:
+    """Fetch the link's og:image, push through upload_to_media_file
+    (dedup + encrypt), return the MediaFile id. Silent on any failure."""
+    import io
+    from urllib.parse import urlparse
+
+    from werkzeug.datastructures import FileStorage
+
+    from flexlog.services.media import upload_to_media_file
+
+    jpeg_bytes = fetch_thumbnail(url)
+    if jpeg_bytes is None:
+        return None
+    try:
+        host = urlparse(url).hostname or "thumbnail"
+        fs = FileStorage(
+            stream=io.BytesIO(jpeg_bytes),
+            filename=f"link-thumb-{host}.jpg",
+            content_type="image/jpeg",
+        )
+        mf = upload_to_media_file(db, fs)
+        return mf.id
+    except Exception:
+        return None
+
+
 def _replace_links(
     db: Session,
     session_row: SessionRow,
     urls: list[str],
-    preserve_thumbnails: list[str | None] | None = None,
 ) -> None:
-    """Drop existing links and recreate from the URL list."""
+    """Replace the session's links with the submitted URLs.
+
+    For each URL that is new or changed, fetch the og:image via
+    fetch_thumbnail, push the bytes through upload_to_media_file
+    (encrypt + dedup), and set the SessionLink's thumbnail_media_id.
+    Unchanged URLs keep their existing thumbnail (URL-keyed match, not
+    position-keyed — so reordering doesn't lose thumbnails)."""
+    old_thumbs_by_url = {li.url: li.thumbnail_media_id for li in session_row.links}
     session_row.links = []
-    new_link_index = 0
     for i, raw in enumerate(urls):
         url = (raw or "").strip()
         if not url:
             continue
-        thumb_id: str | None = None
-        if preserve_thumbnails is not None and new_link_index < len(preserve_thumbnails):
-            thumb_id = preserve_thumbnails[new_link_index]
+        if url in old_thumbs_by_url:
+            thumb_id = old_thumbs_by_url[url]
+        else:
+            thumb_id = _fetch_and_store_thumbnail(db, url)
         session_row.links.append(
             SessionLink(
                 id=str(uuid.uuid4()),
@@ -72,7 +105,6 @@ def _replace_links(
                 thumbnail_media_id=thumb_id,
             )
         )
-        new_link_index += 1
 
 
 def create_session(
@@ -140,8 +172,7 @@ def update_session(
     session_row.ratings_json = _serialize_ratings(ratings)
     session_row.notes = notes if (notes and notes.strip()) else None
 
-    existing_thumbs: list[str | None] = [li.thumbnail_media_id for li in session_row.links]
-    _replace_links(db, session_row, link_urls, preserve_thumbnails=existing_thumbs)
+    _replace_links(db, session_row, link_urls)
     return session_row
 
 
