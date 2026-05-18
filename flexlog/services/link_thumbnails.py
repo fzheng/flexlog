@@ -20,10 +20,73 @@ from PIL import Image
 
 _NAV_TIMEOUT_MS = 15_000          # generous: networkidle on chatty sites
 _SETTLE_DELAY_MS = 800            # post-load grace for JS-driven layout shifts
+_IMAGE_LOAD_TIMEOUT_MS = 8_000    # max wait for forced image loads after scroll-prime
 _VIEWPORT_WIDTH = 1280
 _VIEWPORT_HEIGHT = 800
 _TARGET_MAX_WIDTH = 640
 _JPEG_QUALITY = 85
+
+
+# Run in the page: force lazy/async images to load, then resolve once
+# every <img> has either finished loading or errored. Most modern sites
+# gate hero/feature images behind IntersectionObserver — they only load
+# on scroll. We auto-scroll to the bottom in chunks (firing every
+# observer), flip loading="lazy" → "eager" + decoding="sync" so images
+# off-DOM-tree also fetch, scroll back to top, and resolve when every
+# img.complete is true (or the per-image timeout fires).
+_PRIME_IMAGES_JS = """
+async ({ timeoutMs }) => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // 1. Auto-scroll to bottom in chunks to trip IntersectionObserver
+  //    lazy-loaders. Step is half the viewport height; small wait
+  //    between steps so observer callbacks can fire.
+  const step = Math.max(200, Math.floor(window.innerHeight / 2));
+  let y = 0;
+  const maxY = document.documentElement.scrollHeight;
+  while (y < maxY) {
+    window.scrollTo(0, y);
+    y += step;
+    await sleep(80);
+  }
+  window.scrollTo(0, 0);
+  await sleep(120);
+
+  // 2. Force-eager every <img> + <source>. Some libraries swap src on
+  //    intersection — flipping the attributes here makes those load
+  //    even though we're back at the top.
+  const imgs = Array.from(document.images);
+  for (const img of imgs) {
+    try {
+      if (img.loading === 'lazy') img.loading = 'eager';
+      img.decoding = 'sync';
+      // data-src / data-srcset swap (common lazy patterns)
+      const ds = img.getAttribute('data-src');
+      if (ds && !img.src) img.src = ds;
+      const dss = img.getAttribute('data-srcset');
+      if (dss && !img.srcset) img.srcset = dss;
+    } catch (_) {}
+  }
+
+  // 3. Wait for each image to settle. Resolve on load OR error OR
+  //    timeout, so one broken image can't hang the whole screenshot.
+  const wait = (img) => new Promise((resolve) => {
+    if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+    const done = () => {
+      img.removeEventListener('load', done);
+      img.removeEventListener('error', done);
+      resolve();
+    };
+    img.addEventListener('load', done);
+    img.addEventListener('error', done);
+    setTimeout(done, timeoutMs);
+  });
+  await Promise.all(imgs.map(wait));
+
+  // 4. Wait for webfonts so text doesn't FOUT in the screenshot.
+  try { await document.fonts.ready; } catch (_) {}
+}
+"""
 
 
 def _is_safe_url(url) -> bool:
@@ -105,6 +168,19 @@ def _screenshot_url(url: str) -> bytes | None:
                     return None
                 if final_url and final_url != url and not _is_safe_url(final_url):
                     return None
+
+                # Force lazy/async images to load: scroll the full page
+                # to fire IntersectionObserver callbacks, flip lazy attrs
+                # to eager, wait for each <img> to settle, wait for
+                # webfonts. Best-effort — if the JS fails we screenshot
+                # whatever the page rendered.
+                try:
+                    page.evaluate(
+                        _PRIME_IMAGES_JS,
+                        {"timeoutMs": _IMAGE_LOAD_TIMEOUT_MS},
+                    )
+                except PlaywrightError:
+                    pass
 
                 # Brief settle for post-load JS that nudges layout (e.g.
                 # cookie banners, hero images crossfading in).
