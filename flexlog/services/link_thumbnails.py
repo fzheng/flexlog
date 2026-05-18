@@ -3,7 +3,7 @@
 Public API: fetch_thumbnail(url) -> bytes | None
 
 Launches a headless Chromium via Playwright, navigates to the URL,
-captures a viewport screenshot, resizes to ≤400px wide, and returns
+captures a viewport screenshot, resizes to ≤640px wide, and returns
 the JPEG bytes. Every failure path returns None. The caller
 (services.sessions._fetch_and_store_thumbnail) treats None as
 "no thumbnail" without blocking the session save.
@@ -22,7 +22,7 @@ _NAV_TIMEOUT_MS = 15_000          # generous: networkidle on chatty sites
 _SETTLE_DELAY_MS = 800            # post-load grace for JS-driven layout shifts
 _VIEWPORT_WIDTH = 1280
 _VIEWPORT_HEIGHT = 800
-_TARGET_MAX_WIDTH = 400
+_TARGET_MAX_WIDTH = 640
 _JPEG_QUALITY = 85
 
 
@@ -125,7 +125,7 @@ def _screenshot_url(url: str) -> bytes | None:
 
 
 def _to_jpeg(raw_bytes: bytes) -> bytes | None:
-    """Open `raw_bytes` with Pillow, resize to ≤400px wide preserving
+    """Open `raw_bytes` with Pillow, resize to ≤640px wide preserving
     aspect, transcode to JPEG q=85. Returns the JPEG bytes or None."""
     if not raw_bytes:
         return None
@@ -154,7 +154,7 @@ def fetch_thumbnail(url: str) -> bytes | None:
     """Return JPEG bytes for the link's thumbnail, or None on any failure.
 
     Captures a viewport screenshot of the page via headless Chromium,
-    resizes to ≤400px wide, transcodes to JPEG q=85.
+    resizes to ≤640px wide, transcodes to JPEG q=85.
     """
     try:
         if not _is_safe_url(url):

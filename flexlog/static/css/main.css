@@ -633,11 +633,14 @@ h3 {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
 }
 .link-display {
-  margin-bottom: 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--rule-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 .link-url-meta {
   display: block;
@@ -645,6 +648,7 @@ h3 {
   font-size: 0.75rem;
   color: var(--muted);
   margin-top: 0.15rem;
+  overflow-wrap: anywhere;
 }
 
 .ratings-display ul {
@@ -722,13 +726,13 @@ h3 {
 .photo-thumb:hover img { transform: scale(1.04); }
 
 .link-thumb-image {
-  width: 56px;
-  height: 56px;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
   object-fit: cover;
   border: 1px solid var(--rule);
   border-radius: 0;
-  vertical-align: middle;
-  margin-right: 0.75rem;
+  background: var(--bg-soft);
 }
 
 /* ------------------------------------------------------------ Library */

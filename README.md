@@ -63,7 +63,7 @@ without restarting the app.
 
 ## v0.6.0 — Link Thumbnails (page-screenshot via headless Chromium)
 
-- **Each link gets a thumbnail.** On session save, the server launches a headless Chromium via Playwright, navigates to the URL, captures a viewport screenshot, resizes to 400px wide, and stores it encrypted via the existing media pipeline. The session detail page already renders the thumbnail next to each link.
+- **Each link gets a thumbnail.** On session save, the server launches a headless Chromium via Playwright, navigates to the URL, captures a viewport screenshot, resizes to 640px wide, and stores it encrypted via the existing media pipeline. The session detail page already renders the thumbnail next to each link.
 - **URL-keyed preservation.** Reordering links no longer re-fetches their thumbnails. Only genuinely new-or-changed URLs (or links whose previous fetch failed) trigger a fresh fetch.
 - **SSRF guard.** Initial URL is rejected if it resolves to a private/loopback/link-local/multicast/reserved IP. If Chromium navigates to a redirect target with an unsafe IP, the screenshot is aborted.
 - **Best-effort.** A failed fetch (DNS error, timeout, JS crash) silently saves the link without a thumbnail. Saves never block on the fetcher.

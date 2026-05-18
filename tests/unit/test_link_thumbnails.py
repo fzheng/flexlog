@@ -116,18 +116,18 @@ def test_to_jpeg_resizes_wide_image_preserving_aspect():
     jpeg = _to_jpeg(png)
     assert jpeg is not None
     out = Image.open(io.BytesIO(jpeg))
-    assert out.size == (400, 200)
+    assert out.size == (640, 320)
 
 
 def test_to_jpeg_resizes_1280x800_viewport():
     """The Playwright viewport produces 1280x800 PNGs; verify the
-    resize chain produces 400x250."""
+    resize chain produces 640x400."""
     from PIL import Image
     png = _make_png_bytes(1280, 800)
     jpeg = _to_jpeg(png)
     assert jpeg is not None
     out = Image.open(io.BytesIO(jpeg))
-    assert out.size == (400, 250)
+    assert out.size == (640, 400)
 
 
 def test_to_jpeg_converts_rgba_to_rgb():
@@ -161,7 +161,7 @@ def test_fetch_thumbnail_happy_path():
     assert result is not None
     out = Image.open(io.BytesIO(result))
     assert out.format == "JPEG"
-    assert out.size == (400, 250)  # 1280x800 viewport resized to 400 wide
+    assert out.size == (640, 400)  # 1280x800 viewport resized to 640 wide
 
 
 def test_fetch_thumbnail_returns_none_for_unsafe_url():
