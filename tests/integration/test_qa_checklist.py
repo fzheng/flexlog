@@ -26,11 +26,19 @@ def test_qa_02_no_third_party_requests():
 
     Verified by code search: no calls to `requests`, `urllib.request`,
     `httpx`, etc. in flexlog/.
+
+    Exception: `flexlog/services/link_thumbnails.py` is the M8 link-preview
+    fetcher and is the sole place outbound HTTP is permitted. It is
+    SSRF-guarded (`_is_safe_url`), size-capped, and only triggered by
+    explicit user-saved SessionLink URLs.
     """
     import pathlib
     src = pathlib.Path("flexlog")
     forbidden = ("requests.get", "requests.post", "urllib.request", "httpx.")
+    allowed_paths = {pathlib.Path("flexlog/services/link_thumbnails.py")}
     for p in src.rglob("*.py"):
+        if p in allowed_paths:
+            continue
         text = p.read_text()
         for term in forbidden:
             assert term not in text, f"{p}: forbidden network call {term}"
