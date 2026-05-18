@@ -18,7 +18,8 @@ from urllib.parse import urlparse
 from PIL import Image
 
 
-_NAV_TIMEOUT_MS = 10_000
+_NAV_TIMEOUT_MS = 15_000          # generous: networkidle on chatty sites
+_SETTLE_DELAY_MS = 800            # post-load grace for JS-driven layout shifts
 _VIEWPORT_WIDTH = 1280
 _VIEWPORT_HEIGHT = 800
 _TARGET_MAX_WIDTH = 400
@@ -80,21 +81,37 @@ def _screenshot_url(url: str) -> bytes | None:
                     viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT},
                 )
                 page = context.new_page()
+                # Try networkidle (catches lazy images + JS rendering). If
+                # the page never goes idle (long-polling, websockets), the
+                # navigation timeout fires — but we still try to screenshot
+                # whatever has rendered so far rather than abort the whole
+                # fetch. Worst case: a partial-but-still-useful thumbnail.
                 try:
                     page.goto(
                         url,
                         timeout=_NAV_TIMEOUT_MS,
-                        wait_until="domcontentloaded",
+                        wait_until="networkidle",
                     )
                 except PlaywrightError:
-                    return None
+                    # Fall through with whatever the page has so far.
+                    pass
 
                 # Defense: if Chromium followed a redirect to a private
                 # IP, abort. (Initial URL was already safety-checked by
                 # the caller; this catches redirect bypasses.)
-                final_url = page.url
-                if final_url != url and not _is_safe_url(final_url):
+                try:
+                    final_url = page.url
+                except PlaywrightError:
                     return None
+                if final_url and final_url != url and not _is_safe_url(final_url):
+                    return None
+
+                # Brief settle for post-load JS that nudges layout (e.g.
+                # cookie banners, hero images crossfading in).
+                try:
+                    page.wait_for_timeout(_SETTLE_DELAY_MS)
+                except PlaywrightError:
+                    pass
 
                 try:
                     png = page.screenshot(type="png", full_page=False)
