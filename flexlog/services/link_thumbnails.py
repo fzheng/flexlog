@@ -10,83 +10,68 @@ the JPEG bytes. Every failure path returns None. The caller
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import ipaddress
+import os
 import socket
 from urllib.parse import urlparse
 
 from PIL import Image
 
 
-_NAV_TIMEOUT_MS = 15_000          # generous: networkidle on chatty sites
+_NAV_TIMEOUT_MS = 15_000          # initial goto timeout
+_NETWORKIDLE_TIMEOUT_MS = 8_000   # post-prime wait-for-idle (most lazy fetches done)
 _SETTLE_DELAY_MS = 800            # post-load grace for JS-driven layout shifts
-_IMAGE_LOAD_TIMEOUT_MS = 8_000    # max wait for forced image loads after scroll-prime
 _VIEWPORT_WIDTH = 1280
 _VIEWPORT_HEIGHT = 800
 _TARGET_MAX_WIDTH = 640
 _JPEG_QUALITY = 85
 
+# When set, raw viewport PNG bytes get saved here for inspection.
+# Useful for diagnosing why a thumbnail looks blank without the
+# user having to re-run anything. e.g.
+#     FLEXLOG_THUMBNAIL_DEBUG=/tmp/thumbs make run
+_DEBUG_DIR_ENV = "FLEXLOG_THUMBNAIL_DEBUG"
 
-# Run in the page: force lazy/async images to load, then resolve once
-# every <img> has either finished loading or errored. Most modern sites
-# gate hero/feature images behind IntersectionObserver — they only load
-# on scroll. We auto-scroll to the bottom in chunks (firing every
-# observer), flip loading="lazy" → "eager" + decoding="sync" so images
-# off-DOM-tree also fetch, scroll back to top, and resolve when every
-# img.complete is true (or the per-image timeout fires).
-_PRIME_IMAGES_JS = """
-async ({ timeoutMs }) => {
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-  // 1. Auto-scroll to bottom in chunks to trip IntersectionObserver
-  //    lazy-loaders. Step is half the viewport height; small wait
-  //    between steps so observer callbacks can fire.
-  const step = Math.max(200, Math.floor(window.innerHeight / 2));
-  let y = 0;
-  const maxY = document.documentElement.scrollHeight;
-  while (y < maxY) {
-    window.scrollTo(0, y);
-    y += step;
-    await sleep(80);
-  }
-  window.scrollTo(0, 0);
-  await sleep(120);
-
-  // 2. Force-eager every <img> + <source>. Some libraries swap src on
-  //    intersection — flipping the attributes here makes those load
-  //    even though we're back at the top.
-  const imgs = Array.from(document.images);
-  for (const img of imgs) {
+# Force-eager every <img>: flip loading="lazy" → "eager", set
+# decoding="sync", swap data-src/data-srcset onto src/srcset. Many lazy
+# libraries swap attributes on intersection; this makes them load even
+# without scrolling there. Runs synchronously so we can call without
+# evaluate-promise plumbing.
+_FORCE_EAGER_JS = """
+() => {
+  for (const img of document.images) {
     try {
       if (img.loading === 'lazy') img.loading = 'eager';
       img.decoding = 'sync';
-      // data-src / data-srcset swap (common lazy patterns)
       const ds = img.getAttribute('data-src');
       if (ds && !img.src) img.src = ds;
       const dss = img.getAttribute('data-srcset');
       if (dss && !img.srcset) img.srcset = dss;
     } catch (_) {}
   }
-
-  // 3. Wait for each image to settle. Resolve on load OR error OR
-  //    timeout, so one broken image can't hang the whole screenshot.
-  const wait = (img) => new Promise((resolve) => {
-    if (img.complete && img.naturalWidth > 0) { resolve(); return; }
-    const done = () => {
-      img.removeEventListener('load', done);
-      img.removeEventListener('error', done);
-      resolve();
-    };
-    img.addEventListener('load', done);
-    img.addEventListener('error', done);
-    setTimeout(done, timeoutMs);
-  });
-  await Promise.all(imgs.map(wait));
-
-  // 4. Wait for webfonts so text doesn't FOUT in the screenshot.
-  try { await document.fonts.ready; } catch (_) {}
 }
 """
+
+
+def _save_debug_png(url: str, png_bytes: bytes) -> None:
+    """If FLEXLOG_THUMBNAIL_DEBUG is set, dump the raw viewport PNG to
+    <dir>/<host>-<sha8>.png so the user can inspect what Chromium
+    actually captured. Best-effort; silent on any failure."""
+    debug_dir = os.environ.get(_DEBUG_DIR_ENV)
+    if not debug_dir or not png_bytes:
+        return
+    try:
+        os.makedirs(debug_dir, exist_ok=True)
+        host = (urlparse(url).hostname or "unknown").replace("/", "_")
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
+        path = os.path.join(debug_dir, f"{host}-{digest}.png")
+        with open(path, "wb") as f:
+            f.write(png_bytes)
+    except Exception:
+        pass
 
 
 def _is_safe_url(url) -> bool:
@@ -125,12 +110,26 @@ def _is_safe_url(url) -> bool:
 
 
 def _screenshot_url(url: str) -> bytes | None:
-    """Launch Chromium via Playwright, navigate to `url`, capture a
-    viewport-sized PNG screenshot, return the bytes. Returns None on any
+    """Launch Chromium via Playwright, navigate to `url`, force lazy
+    images to load, return the viewport PNG bytes. Returns None on any
     failure (DNS, timeout, JS crash, redirect to private IP, etc.).
 
+    Strategy for getting lazy-loaded images to appear:
+    1. goto with wait_until="load" (faster, doesn't require idle)
+    2. Imperatively flip every <img>.loading from lazy to eager,
+       swap data-src onto src — covers attribute-swap lazy patterns
+    3. Take a full_page=True screenshot — Playwright internally scrolls
+       through the entire document to stitch it, which trips every
+       IntersectionObserver-based lazy-loader on the page. We discard
+       the result; the side effect (images now loaded) is what we want.
+    4. Scroll back to top, wait_for_load_state("networkidle") to let
+       all the newly-fired image requests complete
+    5. Settle delay for any post-load JS (cookie banners, crossfades)
+    6. Final viewport screenshot
+
     Reuses no browser state — each call launches and closes its own
-    Chromium. ~1-3s per call after the first cold launch."""
+    Chromium. ~3-8s per call (longer than before because of the
+    scroll-prime, but with usefully-loaded images)."""
     try:
         from playwright.sync_api import sync_playwright, Error as PlaywrightError
     except ImportError:
@@ -144,24 +143,19 @@ def _screenshot_url(url: str) -> bytes | None:
                     viewport={"width": _VIEWPORT_WIDTH, "height": _VIEWPORT_HEIGHT},
                 )
                 page = context.new_page()
-                # Try networkidle (catches lazy images + JS rendering). If
-                # the page never goes idle (long-polling, websockets), the
-                # navigation timeout fires — but we still try to screenshot
-                # whatever has rendered so far rather than abort the whole
-                # fetch. Worst case: a partial-but-still-useful thumbnail.
+
+                # Step 1: navigate. wait_until="load" fires when window.load
+                # has fired (all initial resources). We don't need
+                # networkidle here — the prime step + post-prime idle wait
+                # handles lazy-loaded content.
                 try:
-                    page.goto(
-                        url,
-                        timeout=_NAV_TIMEOUT_MS,
-                        wait_until="networkidle",
-                    )
+                    page.goto(url, timeout=_NAV_TIMEOUT_MS, wait_until="load")
                 except PlaywrightError:
-                    # Fall through with whatever the page has so far.
+                    # Fall through with whatever has rendered.
                     pass
 
-                # Defense: if Chromium followed a redirect to a private
-                # IP, abort. (Initial URL was already safety-checked by
-                # the caller; this catches redirect bypasses.)
+                # Safety: re-check final URL in case of redirects to
+                # private IPs (initial URL was vetted by the caller).
                 try:
                     final_url = page.url
                 except PlaywrightError:
@@ -169,30 +163,45 @@ def _screenshot_url(url: str) -> bytes | None:
                 if final_url and final_url != url and not _is_safe_url(final_url):
                     return None
 
-                # Force lazy/async images to load: scroll the full page
-                # to fire IntersectionObserver callbacks, flip lazy attrs
-                # to eager, wait for each <img> to settle, wait for
-                # webfonts. Best-effort — if the JS fails we screenshot
-                # whatever the page rendered.
+                # Step 2: flip lazy attrs eagerly.
                 try:
-                    page.evaluate(
-                        _PRIME_IMAGES_JS,
-                        {"timeoutMs": _IMAGE_LOAD_TIMEOUT_MS},
+                    page.evaluate(_FORCE_EAGER_JS)
+                except PlaywrightError:
+                    pass
+
+                # Step 3: take a full-page screenshot purely as a primer.
+                # Playwright scrolls the document height to stitch, which
+                # trips IntersectionObserver lazy-loaders. Discard result.
+                try:
+                    page.screenshot(type="png", full_page=True)
+                except PlaywrightError:
+                    pass
+
+                # Step 4: scroll back to top, wait for the lazy-image
+                # requests to complete.
+                try:
+                    page.evaluate("window.scrollTo(0, 0)")
+                except PlaywrightError:
+                    pass
+                try:
+                    page.wait_for_load_state(
+                        "networkidle", timeout=_NETWORKIDLE_TIMEOUT_MS
                     )
                 except PlaywrightError:
                     pass
 
-                # Brief settle for post-load JS that nudges layout (e.g.
-                # cookie banners, hero images crossfading in).
+                # Step 5: brief settle for post-load layout shifts.
                 try:
                     page.wait_for_timeout(_SETTLE_DELAY_MS)
                 except PlaywrightError:
                     pass
 
+                # Step 6: the actual screenshot.
                 try:
                     png = page.screenshot(type="png", full_page=False)
                 except PlaywrightError:
                     return None
+                _save_debug_png(url, png)
                 return png
             finally:
                 browser.close()
