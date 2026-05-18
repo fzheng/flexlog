@@ -16,6 +16,8 @@ dependencies = [
     "sqlcipher3>=0.6,<1",
     "Pillow>=10,<13",
     "pillow-heif>=0.16,<2",
+    "requests>=2.31,<3.0",
+    "beautifulsoup4>=4.12,<5.0",
 ]
 
 [project.optional-dependencies]
