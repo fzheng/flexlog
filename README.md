@@ -61,6 +61,17 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.4.0 — Weighted Overall Ratings + Star Input
+
+- **Weighted overall rating per session.** Each rating dimension now has a `weight: float` in config. The session overall is the weighted average of its sub-ratings, displayed as a 1-decimal number (e.g. `4.3 / 5`).
+- **Star input.** The session form replaces number typing with star clicking. Five stars per dimension; click again to decrement (or click star 1 when at 1 to clear to 0). Keyboard: ←/→ to adjust, Space/Enter to commit. A live overall preview updates as you click.
+- **Sub-ratings locked at 0..5 integer.** The `scale_min` / `scale_max` fields are removed from the config schema (`schema_version` bumps to 3).
+- **Dashboard sorted by overall (avg).** New default sort: average overall across each person's sessions. Old `custom:<dim>` sorts stay for sortable dims.
+- **Person detail shows the average.** Above the session list: `"Average across N interviews: 4.2"`. Each session row shows its own overall.
+- **Settings Ratings tab:** scale columns gone; new weight column with live sum-of-enabled-weights indicator and a "Distribute weights evenly" button.
+
+**No DB migration.** v0.3.0 wasn't in production yet — pre-v3 `config.json` files auto-upgrade on first launch (scale fields stripped, weights distributed uniformly). If you had any sessions stored in a v0.3.0 data dir, clear them before upgrading.
+
 ## v0.3.0 — Settings UI + session-form UX overhaul
 
 - **Settings page** at `/settings` — five tabs (App, Ratings, UI strings, Limits, Raw JSON) replace hand-editing `config.json`.
