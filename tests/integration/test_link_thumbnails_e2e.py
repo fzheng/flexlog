@@ -175,3 +175,38 @@ def test_two_sessions_same_link_dedup(authed_client, person, db_session):
 
     # Same MediaFile id reused
     assert s1.links[0].thumbnail_media_id == s2.links[0].thumbnail_media_id
+
+
+def test_resave_retries_failed_thumbnail(authed_client, person, db_session):
+    """First save: fetch_thumbnail fails (returns None) → link saves with
+    no thumbnail. Re-save the same URL: should re-fetch (because the
+    cached thumb is None) and pick up the success this time. This is the
+    bug-fix path for pre-M8 links: re-saving an existing session should
+    populate their thumbnails."""
+    from flexlog.services.sessions import create_session, update_session
+
+    # First save: fetch fails
+    with patch("flexlog.services.sessions.fetch_thumbnail", return_value=None) as fetch_mock:
+        s = create_session(
+            db_session, person_id=person.id, session_date="2026-05-17",
+            ratings={"energy": 4}, notes=None,
+            link_urls=["https://example.com/article"],
+        )
+        db_session.commit()
+        assert fetch_mock.call_count == 1
+        assert s.links[0].thumbnail_media_id is None
+
+    # Re-save the same URL: fetch now succeeds. The fact that the
+    # existing thumb is None must trigger a re-fetch.
+    jpeg = _make_jpeg_bytes()
+    with patch("flexlog.services.sessions.fetch_thumbnail", return_value=jpeg) as fetch_mock:
+        update_session(
+            db_session, session_id=s.id, session_date="2026-05-17",
+            ratings={"energy": 4}, notes=None,
+            link_urls=["https://example.com/article"],  # unchanged URL
+        )
+        db_session.commit()
+
+    # Re-fetch happened (None thumb forced retry on save)
+    assert fetch_mock.call_count == 1
+    assert s.links[0].thumbnail_media_id is not None

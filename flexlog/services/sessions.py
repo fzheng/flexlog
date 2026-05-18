@@ -80,19 +80,23 @@ def _replace_links(
 ) -> None:
     """Replace the session's links with the submitted URLs.
 
-    For each URL that is new or changed, fetch the og:image via
-    fetch_thumbnail, push the bytes through upload_to_media_file
-    (encrypt + dedup), and set the SessionLink's thumbnail_media_id.
-    Unchanged URLs keep their existing thumbnail (URL-keyed match, not
-    position-keyed — so reordering doesn't lose thumbnails)."""
+    For each URL that is new, changed, OR whose previous thumbnail was
+    None (e.g. pre-M8 links, or a prior fetch that failed), fetch the
+    og:image via fetch_thumbnail, push the bytes through
+    upload_to_media_file (encrypt + dedup), and set the SessionLink's
+    thumbnail_media_id. URLs that already have a non-None thumbnail
+    keep it (URL-keyed match, not position-keyed — so reordering
+    doesn't lose thumbnails, and so re-saving an unchanged session
+    doesn't re-fetch thumbnails that already exist)."""
     old_thumbs_by_url = {li.url: li.thumbnail_media_id for li in session_row.links}
     session_row.links = []
     for i, raw in enumerate(urls):
         url = (raw or "").strip()
         if not url:
             continue
-        if url in old_thumbs_by_url:
-            thumb_id = old_thumbs_by_url[url]
+        existing_thumb = old_thumbs_by_url.get(url)
+        if existing_thumb is not None:
+            thumb_id = existing_thumb
         else:
             thumb_id = _fetch_and_store_thumbnail(db, url)
         session_row.links.append(
