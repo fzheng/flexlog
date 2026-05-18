@@ -103,6 +103,8 @@ BUILTIN_UI_DEFAULTS: dict[str, str] = {
     "config_loaded_at_label": "Loaded at",
     "config_reload_failed": "Reload failed",
     "config_reload_succeeded": "Config reloaded.",
+    "weight_sum_label": "Sum of enabled weights:",
+    "distribute_evenly_label": "Distribute weights evenly",
     # Auth + landing page
     "logout": "Logout",
     "search_button": "Search",

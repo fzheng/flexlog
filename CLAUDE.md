@@ -32,7 +32,7 @@ Everything is under one directory pointed at by `$FLEXLOG_DATA_DIR` (must be abs
 
 ```
 $FLEXLOG_DATA_DIR/
-├── config.json           # app labels, rating dimensions, UI strings, limits (schema_version=2)
+├── config.json           # app labels, rating dimensions (with weights), UI strings, limits (schema_version=3)
 ├── kdf_params.json       # Argon2id salt, KEK nonce, wrapped master key (0600, plaintext but useless without password)
 ├── .secret_key           # Flask SECRET_KEY for cookie signing (not user data)
 ├── data/encounters.db    # SQLCipher-encrypted SQLite DB
