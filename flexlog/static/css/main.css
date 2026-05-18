@@ -553,29 +553,6 @@ h3 {
   color: var(--ink-soft);
 }
 
-.ratings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.75rem 1.25rem;
-}
-.ratings-grid .rating-input label {
-  display: block;
-  font-family: var(--sans);
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--ink-soft);
-  margin-bottom: 0.25rem;
-}
-.ratings-grid .rating-input input[type="number"] {
-  width: 100%;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--rule);
-  border-radius: 0;
-  font-family: var(--mono);
-}
-
 .session-form textarea {
   width: 100%;
   padding: 0.85rem 1rem;
