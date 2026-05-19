@@ -8,6 +8,7 @@ validate_config_dict and write atomically (mode 0600 tmp + rename).
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import secrets
@@ -204,7 +205,12 @@ def change_password():
         flash("Current password is incorrect.", "error")
         return redirect(url_for("settings.index"), code=303)
 
-    if unwrapped != current_app.config["MASTER_KEY"]:
+    # Constant-time compare (M2 from pentest). The previous `!=` was a
+    # plain bytes compare that short-circuits on the first differing
+    # byte. Exploiting that would require a local-write timing oracle,
+    # so practically benign — but the rest of the auth path is
+    # constant-time and this should be too.
+    if not hmac.compare_digest(unwrapped, current_app.config["MASTER_KEY"]):
         flash("Internal consistency error. Refusing to change password.", "error")
         return redirect(url_for("settings.index"), code=303)
 
