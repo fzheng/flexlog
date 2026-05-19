@@ -204,3 +204,26 @@ def test_range_zero_to_eof_equals_full_decrypt(tmp_path):
     ranged = decrypt_file_range(dst, _master(), file_sha="3" * 64, start=0, end=len(pt_full) - 1)
     assert full == pt_full
     assert ranged == pt_full
+
+
+def test_encrypt_file_to_path_fsyncs_destination(tmp_path, monkeypatch):
+    """encrypt_file_to_path must fsync the destination before returning,
+    so a power loss between return and the kernel's natural flush
+    doesn't leave a short/zero-length encrypted file on disk."""
+    import os
+    from flexlog.crypto import encrypt_file_to_path
+
+    src = tmp_path / "src.bin"
+    dst = tmp_path / "dst.enc"
+    src.write_bytes(b"hello world" * 1000)
+
+    fsync_calls = []
+    real_fsync = os.fsync
+    def spy_fsync(fd):
+        fsync_calls.append(fd)
+        return real_fsync(fd)
+    monkeypatch.setattr("flexlog.crypto.os.fsync", spy_fsync)
+
+    encrypt_file_to_path(src, dst, master_key=b"\x00" * 32, file_sha="a" * 64)
+
+    assert len(fsync_calls) >= 1, "expected at least one os.fsync on the destination"

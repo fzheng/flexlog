@@ -15,6 +15,7 @@ plain bytes.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import argon2.low_level as argon2_ll
@@ -186,6 +187,13 @@ def encrypt_file_to_path(src_path, dst_path, master_key: bytes, file_sha: str,
             ct = aead.encrypt(nonce, chunk, aad)
             dst.write(ct)  # ct already includes the 16-byte tag
             chunk_index += 1
+        # M4: fsync before the `with` block closes the file. Without
+        # this, a power loss between return and the OS's natural flush
+        # leaves a short/zero-byte encrypted file on disk — decrypt then
+        # fails the chunk auth tag and the MediaFile row is a dangling
+        # pointer.
+        dst.flush()
+        os.fsync(dst.fileno())
 
 
 def decrypt_file_full(enc_path, master_key: bytes, file_sha: str) -> bytes:
