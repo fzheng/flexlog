@@ -203,11 +203,11 @@ def humanize_bytes_filter(n: Any) -> str:
 
 def iso_local_minute(value: Any) -> str:
     """Format a datetime (or ISO-8601 string) as local-time
-    'YYYY-MM-DD HH:MM'. Returns "" on parse failure or None.
+    'YYYY-MM-DD HH:MM'. Returns "" on parse failure.
 
-    The Session model stores updated_at as an ISO-8601 UTC string. The
-    status bar renders it in the server's local timezone (single-user
-    app, no per-user TZ config needed)."""
+    Callers passing UTC values must supply tz-aware datetimes (or ISO
+    strings with offset) — naive datetimes are treated as already-local
+    and rendered as-is, which silently mis-renders UTC values."""
     if value is None:
         return ""
     if isinstance(value, str):

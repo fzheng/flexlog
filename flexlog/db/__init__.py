@@ -122,6 +122,17 @@ def detach_engine_at_runtime(app: Flask) -> None:
             pass
 
 
+def engine_is_attached(app=None) -> bool:
+    """True iff an encrypted DB engine has been attached to `app`
+    (or the current Flask app, if `app` is None). Engine is attached
+    on login (`landing_bp.submit`) or first-time setup
+    (`setup_bp.set_password`) and detached on /logout. Anonymous
+    routes / pre-login state return False — get_db() would raise
+    RuntimeError before this returns False."""
+    target = app if app is not None else current_app
+    return _ENGINE_KEY in target.config
+
+
 def attach_engine_at_runtime(app: Flask, engine: Engine,
                               session_factory: sessionmaker[Session]) -> None:
     """Swap a fresh engine + factory into the app config AFTER login.

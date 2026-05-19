@@ -131,7 +131,7 @@ def create_app() -> Flask:
         keeps rendering without the bar."""
         # Local imports keep the module-level import graph clean and
         # let the unauthed-fast-path skip importing services.status.
-        from flexlog.db import _ENGINE_KEY, get_db
+        from flexlog.db import engine_is_attached, get_db
         from flexlog.services.status import compute_status
 
         # Mirror _inject_auth_state's direct check rather than calling
@@ -143,7 +143,7 @@ def create_app() -> Flask:
         )
         if not authed:
             return {}
-        if _ENGINE_KEY not in current_app.config:
+        if not engine_is_attached():
             return {}
         try:
             snap = compute_status(get_db(), paths.data_dir())
