@@ -251,19 +251,23 @@ def test_upload_handles_concurrent_dedup_race(app, db_session):
         db_session.commit()
 
         original_execute = db_session.execute
+        call_count = {"n": 0}
         def selective_execute(stmt, *a, **kw):
             try:
                 compiled = str(stmt)
             except Exception:
                 return original_execute(stmt, *a, **kw)
-            # Hide the existing row from the dedup SELECT only.
             if "media_file.sha256" in compiled and "SELECT" in compiled.upper():
-                class FakeResult:
-                    def scalar_one_or_none(self):
-                        return None
-                    def scalar_one(self):
-                        return original_execute(stmt, *a, **kw).scalar_one()
-                return FakeResult()
+                call_count["n"] += 1
+                # First sha-lookup is the pre-flush dedup check: hide the
+                # existing row so we proceed to INSERT and trip the
+                # UNIQUE constraint. Subsequent sha-lookups (the reload
+                # inside the IntegrityError branch) return the real row.
+                if call_count["n"] == 1:
+                    class FakeResult:
+                        def scalar_one_or_none(self):
+                            return None
+                    return FakeResult()
             return original_execute(stmt, *a, **kw)
 
         with unittest.mock.patch.object(db_session, "execute", side_effect=selective_execute):

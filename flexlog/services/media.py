@@ -289,7 +289,17 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
             db.rollback()
             existing = db.execute(
                 select(MediaFile).where(MediaFile.sha256 == sha)
-            ).scalar_one()
+            ).scalar_one_or_none()
+            if existing is None:
+                # Race-on-the-race: both writers somehow rolled back. SQLite's
+                # write-serialization makes this practically impossible, but
+                # defending here turns a NoResultFound 500 into a clear retryable
+                # error.
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise MediaUploadError("upload dedup conflict; retry the upload")
             return existing
         except Exception:
             # I2: any other failure (disk full mid-flush, FK violation, etc.).
