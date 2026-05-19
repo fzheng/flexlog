@@ -223,6 +223,29 @@ def iso_local_minute(value: Any) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
 
 
+def vendor_sri(static_path: str) -> str:
+    """Jinja filter: return the integrity + crossorigin attribute
+    fragment for a vendored static asset.
+
+    Usage in templates:
+      <script src="{{ url_for('static', filename='vendor/foo.js') }}"
+              {{ 'vendor/foo.js' | vendor_sri | safe }}></script>
+
+    The path argument is the same string passed to url_for's
+    filename= — relative to flexlog/static/.
+
+    Returns an empty string if the path isn't in SRI_HASHES (which
+    means the maintainer added a vendor file without re-running
+    scripts/regen_vendor_integrity.py — surface as a missing
+    integrity attribute, fail soft).
+    """
+    from flexlog.web.vendor_integrity import SRI_HASHES
+    sri = SRI_HASHES.get(static_path)
+    if not sri:
+        return ""
+    return f'integrity="{sri}" crossorigin="anonymous"'
+
+
 def build_labels_context(config: Config) -> dict[str, Any]:
     """Build the `labels` dict injected into every template."""
     return {
