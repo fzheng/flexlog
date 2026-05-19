@@ -61,7 +61,9 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
-## v0.8.2 — Supply-Chain Hardening
+## v0.8.2 — Supply-Chain Hardening + Pentest Fixes
+
+### Supply-chain defenses
 
 - **Hash-pinned dependency lock.** `requirements.lock` lists every
   direct + transitive Python dep with its SHA-256 hash. A hijacked
@@ -69,7 +71,8 @@ without restarting the app.
   refuses to continue. Regenerate after dep changes via `make lock`.
 - **CVE audit via `make audit`.** Runs `pip-audit --strict` against
   the lockfile and exits non-zero on any known vulnerability —
-  intended as a release gate.
+  intended as a release gate. Requires outbound network (OSV DB);
+  the running app still makes zero third-party requests.
 - **Vendored-JS integrity manifest.** `flexlog/static/vendor/INTEGRITY.txt`
   is a SHA-256 manifest of every committed PhotoSwipe / Cropper.js
   file. `make install` runs `sha256sum -c` (or `shasum -a 256 -c` on
@@ -82,10 +85,35 @@ without restarting the app.
   `connect-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options:
   DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
   no-referrer`, `Permissions-Policy` denying all hardware APIs.
+  Inline event handlers in templates were migrated to data-attribute
+  hooks in `static/js/csp_handlers.js` so the CSP doesn't silently
+  break delete-confirmation dialogs.
+
+### Bundled pentest fixes
+
+A round of pentest-driven hardening shipped in the same release (these
+were committed but never tagged separately as v0.8.1):
+
+- **Long-passphrase leak fixed.** `_looks_like_password` no longer
+  caps at 64 characters — a 65+ char passphrase mis-typed at the
+  fake-Google landing no longer ends up in `google.com/search?q=...`.
+- **Session cookie flags.** `HttpOnly`, `SameSite=Lax` explicitly
+  set; defensible if anyone ever puts the app behind a reverse proxy.
+- **Constant-time master-key compare.** `change_password` uses
+  `hmac.compare_digest`.
+- **HEIC decompression-bomb cap.** Rejects HEIC images claiming
+  `width × height > 50M` pixels BEFORE Pillow allocates the decoded
+  bitmap.
+- **Audio/video magic-byte check.** Rejects polyglot files (HTML/PHP
+  shaped payload with bogus declared audio/mp4 MIME).
+
+### Maintainer notes
 
 To regenerate the vendor integrity manifest after updating a
 vendored file, run `python scripts/regen_vendor_integrity.py` and
 commit the resulting `INTEGRITY.txt` + `flexlog/web/vendor_integrity.py`.
+After bumping a Python dep, run `make lock && make audit` and commit
+the updated `requirements.lock` alongside `pyproject.toml`.
 
 ## v0.8.0 — Status Bar + Data-Integrity Sweep
 
@@ -145,16 +173,29 @@ No schema change. No new dependencies.
   file on disk and one row in the database
 - Inline playback: HTML5 `<audio>` and `<video>` players for audio/video,
   PhotoSwipe lightbox carousel for photos
-- Per-link thumbnails on session links
+- **Paste-your-own link thumbnails** — focus a link row, ⌘V / Ctrl+V a
+  screenshot (or drop an image); the thumbnail uploads through the
+  encrypted media pipeline and shows in the link list. Click to open
+  full-size in a PhotoSwipe lightbox.
+- **Status bar** at the bottom of every authed page shows total data
+  dir size and last session save timestamp — at-a-glance journaling
+  cadence without leaving the page.
 - Media Library at `/library` with type filters, orphans-only filter,
-  and hard-delete (the only place that removes a file from disk)
+  and hard-delete (the only place that removes a file from disk).
+  Hard-delete refuses if any reference still exists — surfaces a clear
+  "still in use" error rather than silently cascading the delete.
 - Live config reload — edit `config.json`, click Reload on `/settings`,
   no restart
 - **Auth + fake landing page:** the URL displays a Google-clone search
   box to anyone unauthenticated; type the admin password to enter,
   anything else 303-redirects to a real Google search of that term.
   Sessions auto-expire after 30 minutes of inactivity, on server
-  restart, or when you click Logout
+  restart, or when you click Logout. Logout drops the master key from
+  memory and disposes the encrypted DB engine.
+- **Hardened browser surface** — strict CSP (`script-src 'self'`,
+  `connect-src 'self'`, `frame-ancestors 'none'`), Subresource
+  Integrity on every vendored `<script>`/`<link>`, secure session
+  cookie flags.
 - Friendly 404 / 413 / 500 error pages, skip-to-content link, all form
   inputs labelled
 
@@ -223,12 +264,29 @@ Requires Python 3.11+. If your default `python3` is older, pass
 make test       # full pytest suite, 85% coverage gate enforced
 make test-cov   # same, plus term-missing coverage report
 make smoke      # boot + dashboard fetch against a temp dir, then teardown
+make lock       # regenerate requirements.lock (run after dep bumps)
+make audit      # pip-audit --strict against the lock (release gate)
 make help       # all targets
 ```
 
+`make install` enforces dep integrity end-to-end:
+
+1. `pip install --require-hashes -r requirements.lock` — refuses any
+   package whose downloaded bytes don't match the recorded sha256.
+2. `sha256sum -c flexlog/static/vendor/INTEGRITY.txt` (or `shasum -a 256
+   -c` on macOS) — refuses if any vendored JS/CSS file on disk has
+   drifted from the committed manifest.
+
+After bumping a dep in `pyproject.toml`, run `make lock && make audit`
+and commit `requirements.lock` alongside. After updating a vendored
+JS/CSS asset, run `python scripts/regen_vendor_integrity.py` and
+commit the file change together with the regenerated `INTEGRITY.txt`
+and `flexlog/web/vendor_integrity.py`.
+
 The codebase grew via five development milestones (foundation → people
 → sessions → media → polish) plus post-MVP features (runtime config
-reload, auth + fake landing). The product spec is
+reload, auth + fake landing, paste link thumbnails, status bar,
+supply-chain hardening). The product spec is
 `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`. Per-feature
 specs and plans live under `docs/superpowers/` locally — that directory
 is gitignored, so it stays out of the public repo.
