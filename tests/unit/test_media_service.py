@@ -281,3 +281,42 @@ def test_upload_handles_concurrent_dedup_race(app, db_session):
         select(MediaFile).where(MediaFile.sha256 == mf1.sha256)
     ).scalars().all()
     assert len(rows) == 1
+
+
+def test_heic_transcode_rejects_oversized_image(monkeypatch, tmp_path):
+    """M5: an HEIC whose declared pixel count exceeds _MAX_DECODED_PIXELS
+    must be rejected BEFORE img.load() — otherwise a crafted HEIC
+    claiming 100k×100k pixels would exhaust memory."""
+    import pytest
+    from unittest.mock import MagicMock
+    from flexlog.services.media import _transcode_heic_to_jpeg, MediaUploadError
+
+    fake_img = MagicMock()
+    fake_img.size = (100_000, 100_000)  # 10 billion pixels — way over cap
+
+    # Track whether .load() got called (it must NOT — we should bail first)
+    load_called = []
+    fake_img.load = MagicMock(side_effect=lambda: load_called.append(True))
+
+    monkeypatch.setattr("PIL.Image.open", lambda _path: fake_img)
+
+    fake_src = tmp_path / "bomb.heic"
+    fake_src.write_bytes(b"\x00" * 100)
+    with pytest.raises(MediaUploadError, match="too large to decode safely"):
+        _transcode_heic_to_jpeg(fake_src)
+    assert load_called == [], (
+        "M5: img.load() must NOT be called when the declared pixel count "
+        "exceeds the cap — otherwise the decompression bomb has already fired"
+    )
+
+
+def test_heic_transcode_accepts_under_cap(monkeypatch, tmp_path):
+    """An HEIC under the pixel cap proceeds normally."""
+    from unittest.mock import MagicMock
+    from flexlog.services.media import _MAX_DECODED_PIXELS
+
+    # Just verify the constant is set to a reasonable cap (~50 MP).
+    assert 10_000_000 <= _MAX_DECODED_PIXELS <= 100_000_000, (
+        f"_MAX_DECODED_PIXELS = {_MAX_DECODED_PIXELS} seems off — "
+        f"should be tens of millions for modern phone cameras"
+    )

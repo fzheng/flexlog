@@ -101,6 +101,13 @@ def _looks_like_heic(head: bytes) -> bool:
     return head[8:12] in _HEIC_BRANDS
 
 
+_MAX_DECODED_PIXELS = 50_000_000  # ~50 MP cap. iPhone HEIC tops out
+                                   # at ~48 MP (iPhone 14 Pro main camera);
+                                   # leaves room for legitimate panoramas
+                                   # while rejecting decompression bombs
+                                   # that would otherwise need GBs of RAM.
+
+
 def _transcode_heic_to_jpeg(src_path) -> tuple[str, int, bytes]:
     """Open an HEIC file at `src_path`, save a high-quality JPEG to a
     sibling tmp path, rewrite `src_path` to point at the JPEG bytes.
@@ -111,6 +118,10 @@ def _transcode_heic_to_jpeg(src_path) -> tuple[str, int, bytes]:
 
     Returns (sha256_hex, size_bytes, head_bytes_64) for the new JPEG so the
     caller can resume the dedup/encrypt pipeline without re-streaming.
+
+    Decompression-bomb defense (M5 from pentest): check declared pixel
+    dimensions BEFORE img.load() so a crafted HEIC claiming 100k×100k
+    pixels can't exhaust memory at decode time.
     """
     import hashlib
     import io
@@ -118,6 +129,16 @@ def _transcode_heic_to_jpeg(src_path) -> tuple[str, int, bytes]:
     from PIL import Image
 
     img = Image.open(src_path)
+    # Check pixel count from the parsed header BEFORE decoding. img.size
+    # is available after Image.open without a full decode.
+    declared_pixels = img.size[0] * img.size[1]
+    if declared_pixels > _MAX_DECODED_PIXELS:
+        img.close()
+        raise MediaUploadError(
+            f"HEIC image is too large to decode safely: "
+            f"{img.size[0]}x{img.size[1]} = {declared_pixels:,} pixels "
+            f"(cap is {_MAX_DECODED_PIXELS:,})"
+        )
     # Force decode now while the file handle is still cheap; later operations
     # might lazy-decode and we'd lose track of errors here.
     img.load()
