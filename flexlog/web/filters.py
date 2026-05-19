@@ -7,11 +7,13 @@ session labels under a single `labels` namespace that templates can read.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from flask import current_app
 
 from flexlog.config_loader import Config
+from flexlog.services.status import humanize_bytes as _humanize_bytes
 
 # Built-in fallbacks for every template-rendered string. The user's
 # config.json `ui_strings` overrides any of these; missing keys fall back
@@ -184,6 +186,41 @@ def star_fill(value) -> str:
         return _STAR_EMPTY * 5
     v = max(0, min(5, value))
     return _STAR_FILLED * v + _STAR_EMPTY * (5 - v)
+
+
+def humanize_bytes_filter(n: Any) -> str:
+    """Jinja-safe wrapper around flexlog.services.status.humanize_bytes.
+
+    Coerces the input to int. Returns "" on TypeError/ValueError so a
+    bad/None value in a template never raises — the status bar simply
+    renders a blank cell instead of 500ing the whole page.
+    """
+    try:
+        return _humanize_bytes(int(n))
+    except (TypeError, ValueError):
+        return ""
+
+
+def iso_local_minute(value: Any) -> str:
+    """Format a datetime (or ISO-8601 string) as local-time
+    'YYYY-MM-DD HH:MM'. Returns "" on parse failure or None.
+
+    The Session model stores updated_at as an ISO-8601 UTC string. The
+    status bar renders it in the server's local timezone (single-user
+    app, no per-user TZ config needed)."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return ""
+    if not isinstance(value, datetime):
+        return ""
+    # tz-aware -> local; naive -> assume already local
+    if value.tzinfo is not None:
+        value = value.astimezone()
+    return value.strftime("%Y-%m-%d %H:%M")
 
 
 def build_labels_context(config: Config) -> dict[str, Any]:

@@ -18,7 +18,13 @@ from flexlog.db import Base, register_db_teardown  # engine attached post-login
 from flexlog.secret_key import load_or_create_secret_key
 from flexlog.services.auth import bootstrap_state
 from flexlog.web import register_blueprints
-from flexlog.web.filters import build_labels_context, notes_preview, ui_filter
+from flexlog.web.filters import (
+    build_labels_context,
+    humanize_bytes_filter,
+    iso_local_minute,
+    notes_preview,
+    ui_filter,
+)
 
 LOGGER_NAME = "flexlog"
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
@@ -95,6 +101,8 @@ def create_app() -> Flask:
     from flexlog.web.filters import overall_fmt, star_fill
     app.jinja_env.filters["overall_fmt"] = overall_fmt
     app.jinja_env.filters["star_fill"] = star_fill
+    app.jinja_env.filters["humanize_bytes"] = humanize_bytes_filter
+    app.jinja_env.filters["iso_local_minute"] = iso_local_minute
 
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
@@ -107,6 +115,44 @@ def create_app() -> Flask:
             and session.get("epoch") == current_app.config.get("AUTH_EPOCH")
         )
         return {"is_authed": authed}
+
+    @app.context_processor
+    def _inject_status_snapshot() -> dict[str, object]:
+        """Compute and inject `status_snapshot` for the status bar on every
+        authed render. Skips when:
+
+        - the session is unauthed (auth gate would have redirected the
+          request, but Flask still renders error pages via render_template
+          which fire context processors).
+        - the DB engine isn't attached (master key not unwrapped yet — any
+          DB call would crash).
+
+        On any compute error, log a warning and inject nothing so the page
+        keeps rendering without the bar."""
+        # Local imports keep the module-level import graph clean and
+        # let the unauthed-fast-path skip importing services.status.
+        from flexlog.db import _ENGINE_KEY, get_db
+        from flexlog.services.status import compute_status
+
+        # Mirror _inject_auth_state's direct check rather than calling
+        # is_authed(), which has a sliding-window side effect that
+        # already fired in the before_request gate.
+        authed = bool(
+            session.get("authed")
+            and session.get("epoch") == current_app.config.get("AUTH_EPOCH")
+        )
+        if not authed:
+            return {}
+        if _ENGINE_KEY not in current_app.config:
+            return {}
+        try:
+            snap = compute_status(get_db(), paths.data_dir())
+        except Exception:
+            current_app.logger.warning(
+                "status_snapshot compute failed", exc_info=True,
+            )
+            return {}
+        return {"status_snapshot": snap}
 
     app.url_map.merge_slashes = False
 

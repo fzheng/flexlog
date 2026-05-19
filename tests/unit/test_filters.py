@@ -109,3 +109,62 @@ def test_notes_preview_collapses_newlines():
 def test_notes_preview_unicode_preserved():
     from flexlog.web.filters import notes_preview
     assert notes_preview("深入交流") == "深入交流"
+
+
+# --- humanize_bytes + iso_local_minute filters (status bar wiring) ---
+
+
+def test_humanize_bytes_filter_registered_and_handles_ints(app):
+    with app.app_context():
+        f = app.jinja_env.filters["humanize_bytes"]
+        assert f(0) == "0 B"
+        assert f(1023) == "1023 B"
+        assert f(1024) == "1.0 KB"
+        assert f(2 * 1024 * 1024 * 1024) == "2.0 GB"
+
+
+def test_humanize_bytes_filter_returns_empty_on_garbage(app):
+    with app.app_context():
+        f = app.jinja_env.filters["humanize_bytes"]
+        assert f("garbage") == ""
+        assert f(None) == ""
+
+
+def test_iso_local_minute_filter_handles_iso_string(app):
+    with app.app_context():
+        f = app.jinja_env.filters["iso_local_minute"]
+        out = f("2026-05-18T14:23:45.123456+00:00")
+        # Output is local-time; we don't know the test machine's TZ, but
+        # it's a 16-char string matching the YYYY-MM-DD HH:MM template.
+        assert len(out) == 16
+        assert out[4] == "-"
+        assert out[7] == "-"
+        assert out[10] == " "
+        assert out[13] == ":"
+
+
+def test_iso_local_minute_filter_handles_none(app):
+    with app.app_context():
+        f = app.jinja_env.filters["iso_local_minute"]
+        assert f(None) == ""
+
+
+def test_iso_local_minute_filter_handles_garbage_string(app):
+    with app.app_context():
+        f = app.jinja_env.filters["iso_local_minute"]
+        assert f("not a date") == ""
+
+
+def test_iso_local_minute_filter_handles_wrong_type(app):
+    with app.app_context():
+        f = app.jinja_env.filters["iso_local_minute"]
+        assert f(12345) == ""
+
+
+def test_iso_local_minute_filter_handles_naive_datetime(app):
+    from datetime import datetime
+    with app.app_context():
+        f = app.jinja_env.filters["iso_local_minute"]
+        # Naive datetime: assumed already local, just strftime'd.
+        out = f(datetime(2026, 5, 18, 14, 23, 45))
+        assert out == "2026-05-18 14:23"
