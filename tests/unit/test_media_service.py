@@ -186,3 +186,94 @@ def test_upload_handles_filename_with_path_traversal(app, db_session):
         assert paths.uploads_dir() in target.parents or target.parent.parent.parent == paths.uploads_dir()
         # original_filename is recorded as-is — escaping happens at render time.
         assert mf.original_filename == "../../etc/passwd.jpg"
+
+
+def _make_jpeg_bytes(width=80, height=60, color=(120, 60, 200)):
+    import io
+    from PIL import Image
+    img = Image.new("RGB", (width, height), color=color)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+def test_upload_unlinks_target_on_db_flush_failure(app, db_session, monkeypatch):
+    """I2: If db.flush raises (disk full, FK violation, anything),
+    the just-encrypted target file must be unlinked to prevent
+    orphan-file accumulation."""
+    import io
+    from werkzeug.datastructures import FileStorage
+
+    jpeg = _make_jpeg_bytes()
+    fs = FileStorage(
+        stream=io.BytesIO(jpeg),
+        filename="x.jpg",
+        content_type="image/jpeg",
+    )
+
+    # Force the flush to fail with a non-IntegrityError.
+    def bad_flush():
+        raise RuntimeError("simulated disk full")
+    monkeypatch.setattr(db_session, "flush", bad_flush)
+
+    with app.app_context():
+        with pytest.raises(RuntimeError, match="simulated disk full"):
+            upload_to_media_file(db_session, fs)
+
+    # The encrypted target should NOT exist on disk.
+    import hashlib
+    sha = hashlib.sha256(jpeg).hexdigest()
+    file_key = paths.file_key_for(sha, "image/jpeg")
+    target = paths.resolve_file_key(file_key)
+    assert not target.exists(), "I2: orphan encrypted file left behind after DB failure"
+
+
+def test_upload_handles_concurrent_dedup_race(app, db_session):
+    """I5: Two writes with the same SHA — the second's INSERT hits the
+    UNIQUE constraint. The service must catch IntegrityError, reload
+    the existing row by SHA, and return it. The on-disk encrypted file
+    is identical either way (deterministic FEK) so no cleanup needed."""
+    import io
+    import unittest.mock
+    from werkzeug.datastructures import FileStorage
+    from sqlalchemy import select
+    from flexlog.db.models import MediaFile
+    from flexlog.services.media import upload_to_media_file
+
+    jpeg = _make_jpeg_bytes()
+    fs1 = FileStorage(stream=io.BytesIO(jpeg), filename="a.jpg",
+                       content_type="image/jpeg")
+    fs2 = FileStorage(stream=io.BytesIO(jpeg), filename="b.jpg",
+                       content_type="image/jpeg")
+
+    with app.app_context():
+        mf1 = upload_to_media_file(db_session, fs1)
+        db_session.commit()
+
+        original_execute = db_session.execute
+        def selective_execute(stmt, *a, **kw):
+            try:
+                compiled = str(stmt)
+            except Exception:
+                return original_execute(stmt, *a, **kw)
+            # Hide the existing row from the dedup SELECT only.
+            if "media_file.sha256" in compiled and "SELECT" in compiled.upper():
+                class FakeResult:
+                    def scalar_one_or_none(self):
+                        return None
+                    def scalar_one(self):
+                        return original_execute(stmt, *a, **kw).scalar_one()
+                return FakeResult()
+            return original_execute(stmt, *a, **kw)
+
+        with unittest.mock.patch.object(db_session, "execute", side_effect=selective_execute):
+            mf2 = upload_to_media_file(db_session, fs2)
+            db_session.commit()
+
+    # Same row returned.
+    assert mf1.id == mf2.id
+    # Only one row in DB.
+    rows = db_session.execute(
+        select(MediaFile).where(MediaFile.sha256 == mf1.sha256)
+    ).scalars().all()
+    assert len(rows) == 1

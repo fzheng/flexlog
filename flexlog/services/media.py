@@ -19,6 +19,7 @@ from pathlib import Path
 
 from flask import current_app
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.datastructures import FileStorage
 
@@ -279,10 +280,29 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
             file_size_bytes=size,
         )
         db.add(new_row)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            # I5: concurrent upload of identical bytes won the race. The
+            # encrypted file on disk is identical (deterministic FEK), so just
+            # roll back our insert and reload the existing row.
+            db.rollback()
+            existing = db.execute(
+                select(MediaFile).where(MediaFile.sha256 == sha)
+            ).scalar_one()
+            return existing
+        except Exception:
+            # I2: any other failure (disk full mid-flush, FK violation, etc.).
+            # The encrypted file at `target` is ours alone — clean it up so
+            # we don't leak an orphan.
+            try:
+                target.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
         return new_row
     except Exception:
-        # Best-effort cleanup
+        # Best-effort cleanup of the tmp file (may already be gone).
         try:
             tmp_path.unlink()
         except FileNotFoundError:
