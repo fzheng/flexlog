@@ -2,7 +2,7 @@
 
 {% block title %}{{ "new_person" | ui }} — {{ labels.app_name }}{% endblock %}
 
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='vendor/cropperjs/cropper.min.css') }}">{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='vendor/cropperjs/cropper.min.css') }}" {{ 'vendor/cropperjs/cropper.min.css' | vendor_sri | safe }}>{% endblock %}
 
 {% block content %}
 <section class="form-section">
@@ -29,7 +29,7 @@
     </div>
   </form>
 </section>
-<script src="{{ url_for('static', filename='vendor/cropperjs/cropper.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/cropperjs/cropper.min.js') }}" {{ 'vendor/cropperjs/cropper.min.js' | vendor_sri | safe }}></script>
 <script src="{{ url_for('static', filename='js/avatar_cropper.js') }}"></script>
 <script src="{{ url_for('static', filename='js/people_form.js') }}" defer></script>
 {% endblock %}

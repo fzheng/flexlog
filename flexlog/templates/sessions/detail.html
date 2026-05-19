@@ -100,8 +100,8 @@
   {% endif %}
 </section>
 
-<link rel="stylesheet" href="{{ url_for('static', filename='vendor/photoswipe/photoswipe.css') }}">
-<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe.umd.min.js') }}" defer></script>
-<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe-lightbox.umd.min.js') }}" defer></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/photoswipe/photoswipe.css') }}" {{ 'vendor/photoswipe/photoswipe.css' | vendor_sri | safe }}>
+<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe.umd.min.js') }}" defer {{ 'vendor/photoswipe/photoswipe.umd.min.js' | vendor_sri | safe }}></script>
+<script src="{{ url_for('static', filename='vendor/photoswipe/photoswipe-lightbox.umd.min.js') }}" defer {{ 'vendor/photoswipe/photoswipe-lightbox.umd.min.js' | vendor_sri | safe }}></script>
 <script src="{{ url_for('static', filename='js/photoswipe_init.js') }}" defer></script>
 {% endblock %}

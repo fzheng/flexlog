@@ -29,7 +29,13 @@ $(INSTALL_MARK): pyproject.toml requirements.lock | $(VENV)
 	$(BIN)/pip install --upgrade pip
 	$(BIN)/pip install --require-hashes -r requirements.lock
 	$(BIN)/pip install -e . --no-deps
-	@cd flexlog/static/vendor && sha256sum -c INTEGRITY.txt 2>/dev/null || true
+	@if command -v sha256sum >/dev/null 2>&1; then \
+	    cd flexlog/static/vendor && sha256sum -c INTEGRITY.txt; \
+	elif command -v shasum >/dev/null 2>&1; then \
+	    cd flexlog/static/vendor && shasum -a 256 -c INTEGRITY.txt; \
+	else \
+	    echo "WARNING: neither sha256sum nor shasum found; vendor integrity NOT verified"; \
+	fi
 	@touch $@
 
 install: $(INSTALL_MARK)
