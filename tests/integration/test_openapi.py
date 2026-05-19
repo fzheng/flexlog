@@ -59,26 +59,34 @@ def spec() -> dict:
 
 
 @pytest.fixture(scope="module")
-def app_routes() -> list[dict]:
+def app_routes(tmp_path_factory) -> list[dict]:
     """Every Flask route as a list of {rule, methods, endpoint} dicts.
     Methods exclude HEAD/OPTIONS (auto-added by Flask for GET handlers).
-    Static endpoint is filtered out."""
-    import os
-    os.environ.setdefault("FLEXLOG_DATA_DIR", "/tmp/flexlog-openapi-test")
-    Path("/tmp/flexlog-openapi-test").mkdir(parents=True, exist_ok=True)
-    from flexlog.app import create_app
-    app = create_app()
-    out = []
-    for rule in app.url_map.iter_rules():
-        if rule.endpoint in _NON_API_ENDPOINTS:
-            continue
-        methods = sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS"))
-        out.append({
-            "rule": rule.rule,
-            "endpoint": rule.endpoint,
-            "methods": methods,
-        })
-    return out
+    Static endpoint is filtered out.
+
+    Uses a module-scoped MonkeyPatch context so FLEXLOG_DATA_DIR is set
+    *and* reverted properly. The previous version of this fixture used
+    `os.environ.setdefault(...)` which:
+      a) was a no-op if the developer's shell already had the env set
+         (could point flexlog at a real data dir), and
+      b) leaked into other tests via `os.environ` mutation.
+    """
+    tmp_dir = tmp_path_factory.mktemp("openapi_app_routes")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("FLEXLOG_DATA_DIR", str(tmp_dir))
+        from flexlog.app import create_app
+        app = create_app()
+        out = []
+        for rule in app.url_map.iter_rules():
+            if rule.endpoint in _NON_API_ENDPOINTS:
+                continue
+            methods = sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS"))
+            out.append({
+                "rule": rule.rule,
+                "endpoint": rule.endpoint,
+                "methods": methods,
+            })
+        return out
 
 
 def _flask_rule_to_openapi_path(rule: str) -> str:

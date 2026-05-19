@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,77 @@ from flexlog.crypto import (
 from flexlog.kdf_params import KdfParams, write_kdf_params
 
 _FIXTURE_PASSWORD = "hunter2-test"  # tests use this; never used in production
+
+
+# ───────────────────────────────────────────────────────────────────────
+# Session-wide safety net: strip FLEXLOG_DATA_DIR from the env so a
+# test that forgets to monkeypatch can't accidentally touch the user's
+# real data dir. Restore at session end so the shell that invoked
+# `make test` doesn't lose its env var.
+#
+# Background: every test fixture that needs the env var sets it via
+# `monkeypatch.setenv(...)`, which is per-test and auto-reverts on
+# teardown. But if `FLEXLOG_DATA_DIR=$HOME/flexlog-data` is set in the
+# developer's shell BEFORE pytest starts, any test code path that
+# doesn't go through a fixture inherits that prod value. A
+# `create_app()` call would then read prod config, attach an engine
+# against prod, and any write — even a "test" upload through the real
+# pipeline — would land in prod's encrypted media tree.
+#
+# This fixture removes that risk class entirely.
+# ───────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_from_prod_data_dir():
+    """Pop FLEXLOG_DATA_DIR for the session; restore on exit."""
+    saved = os.environ.pop("FLEXLOG_DATA_DIR", None)
+    if saved:
+        looks_real = (Path(saved) / "kdf_params.json").exists()
+        if looks_real:
+            print(
+                f"\n  flexlog test isolation: FLEXLOG_DATA_DIR was set to\n"
+                f"  {saved}\n"
+                f"  which contains a kdf_params.json (looks like a real\n"
+                f"  data dir). It has been temporarily removed from the\n"
+                f"  env for the test session. Tests use per-test tmp dirs\n"
+                f"  via the `tmp_data_dir` fixture; the original value\n"
+                f"  will be restored when the session ends.\n",
+                file=sys.stderr,
+            )
+        else:
+            # Even if the dir doesn't have a kdf_params.json (so isn't
+            # obviously "prod"), strip it for the session — defense in
+            # depth.
+            pass
+    yield
+    if saved is not None:
+        os.environ["FLEXLOG_DATA_DIR"] = saved
+
+
+@pytest.fixture(autouse=True)
+def _no_prod_env_leak():
+    """Per-test: assert no fixture left FLEXLOG_DATA_DIR pointing at a
+    suspicious directory. monkeypatch.setenv already reverts after each
+    test, so by the time this fixture's teardown runs the env should
+    be clean. If it isn't, a test mutated `os.environ` directly
+    (bypassing monkeypatch) and that's a bug.
+
+    The check fires after the test body and before the next test starts,
+    so a regression surfaces immediately rather than as a hard-to-trace
+    cross-test interaction."""
+    yield
+    val = os.environ.get("FLEXLOG_DATA_DIR")
+    if val is None:
+        return
+    p = Path(val)
+    if (p / "kdf_params.json").exists():
+        raise AssertionError(
+            f"Test left FLEXLOG_DATA_DIR={val!r} pointing at a real "
+            f"data dir (kdf_params.json exists there). Use "
+            f"monkeypatch.setenv(...) instead of os.environ[...] = "
+            f"so the value auto-reverts."
+        )
 
 # Argon2id with production params (~500ms each) makes the fixture-heavy
 # suite take ~45s. For tests we run hundreds of fixtures per session and

@@ -37,17 +37,16 @@ def test_qa_02_no_third_party_requests():
             assert term not in text, f"{p}: forbidden network call {term}"
 
 
-def test_qa_03_data_dir_required():
-    """QA-3: startup fails clearly if FLEXLOG_DATA_DIR is missing/relative/etc."""
-    import os
+def test_qa_03_data_dir_required(monkeypatch):
+    """QA-3: startup fails clearly if FLEXLOG_DATA_DIR is missing/relative/etc.
+
+    Uses `monkeypatch.delenv` so the env var auto-restores at test
+    teardown (the previous manual `os.environ` mutation lost the value
+    if the test raised between pop and try)."""
     from flexlog.paths import DataDirError, data_dir
-    saved = os.environ.pop("FLEXLOG_DATA_DIR", None)
-    try:
-        with pytest.raises(DataDirError):
-            data_dir()
-    finally:
-        if saved is not None:
-            os.environ["FLEXLOG_DATA_DIR"] = saved
+    monkeypatch.delenv("FLEXLOG_DATA_DIR", raising=False)
+    with pytest.raises(DataDirError):
+        data_dir()
 
 
 def test_qa_04_data_dir_valid_absolute_succeeds(authed_client):

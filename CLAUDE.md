@@ -257,6 +257,8 @@ The `app` fixture's `_bootstrap_encrypted_dir` does `Base.metadata.create_all(en
 
 `tests/integration/test_db_threaded.py` exists specifically to catch SQLCipher thread-safety regressions — if you change the pool config, run it.
 
+**Test isolation from prod data.** A session-autouse fixture in `tests/conftest.py` (`_isolate_from_prod_data_dir`) pops `FLEXLOG_DATA_DIR` from `os.environ` at pytest session start, regardless of whether the developer's shell had it set. Plus a per-test autouse `_no_prod_env_leak` asserts no test mutated `os.environ` directly to point at a real data dir. If `FLEXLOG_DATA_DIR` was set to something with a real `kdf_params.json` at session start, the safety net prints a stderr warning and proceeds with the env var stripped. Restored at session end so the parent shell's env is unaffected. The dedicated meta-tests live in `tests/integration/test_isolation_from_prod.py`. If those fail, fix before adding any test that touches `FLEXLOG_DATA_DIR` directly — `monkeypatch.setenv` is the only sanctioned pattern.
+
 ### Auth model and the fake landing page
 
 `GET /` and `POST /` are the **only** unauthed endpoints besides `/setup/*` and `/static/*`. The page looks like Google. The POST handler:
