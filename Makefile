@@ -5,7 +5,7 @@ DATA_DIR     ?= $(CURDIR)/flexlog-data
 PORT         ?= 5050
 INSTALL_MARK := $(VENV)/.installed
 
-.PHONY: help install run test test-cov smoke clean
+.PHONY: help install lock audit run test test-cov smoke clean
 
 help:
 	@echo "flexlog — make targets"
@@ -25,12 +25,27 @@ help:
 $(VENV):
 	$(PYTHON) -m venv $(VENV)
 
-$(INSTALL_MARK): pyproject.toml | $(VENV)
+$(INSTALL_MARK): pyproject.toml requirements.lock | $(VENV)
 	$(BIN)/pip install --upgrade pip
-	$(BIN)/pip install -e ".[dev]"
+	$(BIN)/pip install --require-hashes -r requirements.lock
+	$(BIN)/pip install -e . --no-deps
+	@cd flexlog/static/vendor && sha256sum -c INTEGRITY.txt 2>/dev/null || true
 	@touch $@
 
 install: $(INSTALL_MARK)
+
+lock: | $(VENV)
+	$(BIN)/pip install --upgrade "pip-tools>=7.4,<8"
+	$(BIN)/pip-compile \
+	    --generate-hashes \
+	    --extra dev \
+	    --output-file requirements.lock \
+	    pyproject.toml
+	@echo ""
+	@echo "Lockfile regenerated. Review the diff and commit alongside pyproject.toml."
+
+audit: install
+	$(BIN)/pip-audit --strict --requirement requirements.lock
 
 run: install
 	@mkdir -p $(DATA_DIR)
