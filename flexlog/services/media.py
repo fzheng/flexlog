@@ -6,16 +6,20 @@ size + MIME, and then either deduplicates against an existing media_file
 row (deleting the tmp) or atomically renames the tmp into the canonical
 content-addressed location and inserts a fresh media_file row.
 
-Magic-byte detection is implemented for images only (JPEG, PNG, WebP) per
-spec §4.3 — audio and video are validated by content-type/extension match
-since their formats are too varied for a small signature check.
+Magic-byte detection covers:
+- Images (JPEG, PNG, WebP) — strict declared-MIME == detected-MIME check.
+- HEIC/HEIF — ftyp+brand check plus 50MP decoded-pixel cap on transcode
+  (v0.8.2 M5, decompression-bomb defense).
+- Audio/video — coarse "looks like a known A/V container" check via
+  `_looks_like_audio_video` (v0.8.2 M4, rejects HTML/PHP/JS polyglots
+  declared as audio/mp4 etc.). Can't distinguish audio/mp4 vs video/mp4
+  strictly because they share `ftyp` brands.
 """
 
 from __future__ import annotations
 
 import secrets
 import uuid
-from pathlib import Path
 
 from flask import current_app
 from sqlalchemy import select
@@ -25,7 +29,6 @@ from werkzeug.datastructures import FileStorage
 
 from flexlog import paths
 from flexlog.db.models import MediaFile, SessionMedia
-from flexlog.hashing import sha256_hex_stream
 
 CHUNK = 1024 * 1024  # 1 MiB
 
@@ -41,11 +44,22 @@ except Exception:  # pragma: no cover — only fires when libheif is missing
 
 
 class MediaUploadError(RuntimeError):
-    """Raised when an upload fails validation."""
+    """Raised when an upload fails validation.
+
+    Catch-all base. Routes that need to distinguish error-causes (e.g.
+    to return 413 vs. 422) should catch the more specific subclasses
+    below before falling through to this one.
+    """
 
 
 class UnsupportedMediaTypeError(MediaUploadError):
-    """Raised when MIME type is outside the allowlist."""
+    """Raised when MIME type is outside the allowlist (HTTP 415)."""
+
+
+class PayloadTooLargeError(MediaUploadError):
+    """Raised when an upload exceeds the configured per-file size cap
+    (HTTP 413). Distinct from other validation failures so the route
+    can return the right status code per RFC 9110."""
 
 
 # MIME → media_type classification (matches paths._MIME_TO_EXT keys).
@@ -282,7 +296,7 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
                     head_bytes = chunk[:64]  # capture the first chunk's head for magic-byte check
                 size += len(chunk)
                 if size > max_bytes:
-                    raise MediaUploadError(
+                    raise PayloadTooLargeError(
                         f"upload exceeds size cap of {cfg.limits.max_upload_mb_per_file} MiB"
                     )
                 h.update(chunk)
@@ -435,13 +449,22 @@ def unlink_from_session(db: Session, session_media_id: str) -> None:
 
 def orphan_delete_media_file(db: Session, file_key: str) -> bool:
     """Best-effort orphan delete. If the MediaFile is referenced by any
-    SessionMedia or Person.avatar_media_id, returns False without doing
-    anything. Otherwise, deletes the encrypted file from disk + the row.
+    SessionMedia, Person.avatar_media_id, OR SessionLink.thumbnail_media_id,
+    returns False without doing anything. Otherwise, deletes the encrypted
+    file from disk + the row.
+
+    The third reference type (link-thumbnail) was added in v0.7.0 but
+    this function's check missed it until the pre-v0.9.0 review caught
+    the gap — without the check, a paste-uploaded link thumbnail file
+    could be deleted via DELETE /sessions/upload/<file_key> while a
+    SessionLink.thumbnail_media_id still pointed at it (broken
+    thumbnail render thereafter).
 
     Returns True iff the file was deleted."""
-    from sqlalchemy import select
-    from flexlog import paths
-    from flexlog.db.models import MediaFile, Person, SessionMedia
+    # SessionLink + Person aren't in the module-top imports (would
+    # circular-ish with services.sessions / services.people). Local
+    # imports keep the dependency direction one-way.
+    from flexlog.db.models import Person, SessionLink
 
     mf = db.execute(
         select(MediaFile).where(MediaFile.file_key == file_key)
@@ -455,7 +478,12 @@ def orphan_delete_media_file(db: Session, file_key: str) -> bool:
     referenced_as_avatar = db.execute(
         select(Person.id).where(Person.avatar_media_id == mf.id).limit(1)
     ).scalar_one_or_none()
-    if referenced_by_session is not None or referenced_as_avatar is not None:
+    referenced_as_link_thumbnail = db.execute(
+        select(SessionLink.id).where(SessionLink.thumbnail_media_id == mf.id).limit(1)
+    ).scalar_one_or_none()
+    if (referenced_by_session is not None
+            or referenced_as_avatar is not None
+            or referenced_as_link_thumbnail is not None):
         return False
 
     target = paths.resolve_file_key(mf.file_key)

@@ -61,6 +61,48 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.9.0 — OpenAPI Contract + Coverage Sweep + Pre-Release Fixes
+
+- **OpenAPI 3.0 spec.** `docs/openapi.yaml` documents every Flask
+  route (34 operations across 11 blueprints) with parameters, request
+  bodies, response codes, and auth requirements. Render with any
+  OpenAPI viewer (Swagger UI / ReDoc), generate client SDKs via
+  `openapi-generator`, or just read it as the canonical HTTP API
+  contract.
+- **Drift detection (15 tests).** `tests/integration/test_openapi.py`
+  walks `app.url_map` and the spec in both directions, failing on any
+  route added without docs, removed but spec-stale, method changed,
+  or auth annotation drift. The runtime `ALLOWED_UNAUTH_ENDPOINTS`
+  set must match the spec's `security: []` operations exactly.
+- **Deprecation workflow.** Mark an operation `deprecated: true`
+  with `x-removal-version: "X.Y.Z"`; the drift test enforces the
+  removal-version pairing so deprecations don't disappear silently.
+- **Pre-release cleanup.** Fixed 4 spec/runtime drift bugs the review
+  surfaced: `/logout` now correctly marked public; oversize uploads
+  return 413 via a new `PayloadTooLargeError` subclass while other
+  validation failures correctly return 422; `orphan_delete_media_file`
+  now checks `SessionLink.thumbnail_media_id` references (was missing
+  since v0.7.0); `/dashboard` sort parameter enum matches the
+  handler's actual accepted values.
+- **+58 coverage tests.** 738 → 813 total, coverage 94.21% → 96.36%.
+  New tests cover crypto header validation, kdf_params corruption
+  paths, status-bar malformed-data handling, upload endpoint error
+  branches, media Range header edge cases, db engine lifecycle,
+  setup-state redirects, change-password error paths, and the
+  PersonForm whitespace-only-alias validator.
+- **`make openapi` target** validates the spec + runs drift tests
+  in ~0.4 s, separate from the full `make test` suite. New `make help`
+  output lists the maintainer-only targets (`lock`, `audit`,
+  `openapi`) explicitly.
+- **Stale docstring sweep.** `db/__init__.py` (NullPool not
+  SingletonThreadPool; `register_db_teardown` not `attach_to_app`),
+  `services/media.py` (audio/video magic-byte check added in v0.8.2 M4),
+  `services/library.py` (refuse-on-reference, not silent cascade),
+  `services/status.py` (context processor lives in `app.py`),
+  `crypto.py` (chunked format is in this module, not "a later step")
+  all corrected. `build_header` / `parse_header` got docstrings
+  explaining the binary layout + error contract.
+
 ## v0.8.2 — Supply-Chain Hardening + Pentest Fixes
 
 ### Supply-chain defenses

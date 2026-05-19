@@ -556,3 +556,49 @@ def test_heic_transcode_preserves_exif(monkeypatch, tmp_path):
     src.write_bytes(b"\x00" * 50)
     _transcode_heic_to_jpeg(src)
     assert save_calls[0].get("exif") == b"FAKE_EXIF_BYTES"
+
+
+def test_orphan_delete_refuses_when_referenced_as_link_thumbnail(app, db_session, person):
+    """Pre-v0.9.0 review Critical #3: orphan_delete_media_file used to
+    only check SessionMedia and Person.avatar — not
+    SessionLink.thumbnail_media_id. A paste-uploaded link thumbnail
+    could be deleted via DELETE /sessions/upload/<file_key> while the
+    SessionLink still pointed at it. Now the function checks all
+    three reference types."""
+    import io
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import (
+        orphan_delete_media_file, upload_to_media_file,
+    )
+    from flexlog.services.sessions import create_session
+
+    jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 500
+    fs = FileStorage(
+        stream=io.BytesIO(jpeg), filename="thumb.jpg",
+        content_type="image/jpeg",
+    )
+    with app.app_context():
+        mf = upload_to_media_file(db_session, fs)
+        db_session.commit()
+
+        s = create_session(
+            db_session, person_id=person.id, session_date="2026-05-19",
+            ratings={}, notes=None,
+            link_urls=["https://example.com"],
+            link_thumb_keys=[mf.file_key],
+        )
+        db_session.commit()
+
+        # The session's link now references mf as its thumbnail.
+        assert s.links[0].thumbnail_media_id == mf.id
+
+        # Orphan-delete must refuse.
+        result = orphan_delete_media_file(db_session, mf.file_key)
+        assert result is False, (
+            "orphan_delete_media_file should refuse when MediaFile is "
+            "referenced as a link thumbnail"
+        )
+
+        # The MediaFile still exists.
+        from flexlog.db.models import MediaFile
+        assert db_session.get(MediaFile, mf.id) is not None

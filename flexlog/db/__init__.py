@@ -28,11 +28,11 @@ def make_engine(db_path: Path, sqlcipher_key_hex: str) -> Engine:
     `sqlcipher_key_hex` must be 64 hex chars (32 bytes). It's applied via
     `PRAGMA key = "x'<hex>'"` on every new connection.
 
-    Uses SingletonThreadPool (one connection per worker thread) so
-    Flask's threaded=True server can serve concurrent requests without
-    cross-thread sharing of a single DBAPI connection. Each thread pays
-    the PRAGMA key cost once on its first DB touch; the cost is small
-    (<10 ms) compared with the typical request latency.
+    Uses NullPool (one fresh connection per request, closed at request
+    end). SingletonThreadPool was tried first but produced noisy
+    cross-thread close errors at engine-dispose time when request
+    threads died with open connections. See the inline comments inside
+    `create_engine(...)` below for the full rationale.
     """
     if len(sqlcipher_key_hex) != 64:
         raise ValueError(
@@ -162,8 +162,9 @@ def attach_engine_at_runtime(app: Flask, engine: Engine,
 def get_db() -> Session:
     """Return the request-scoped Session, creating it on first call.
 
-    Must be called inside a Flask app context. The session is closed by the
-    teardown handler installed in `attach_to_app`.
+    Must be called inside a Flask app context. The session is closed by
+    the teardown handler installed by `register_db_teardown(app)` (called
+    at app-factory time, separately from engine attach).
 
     Raises RuntimeError if no engine has been attached yet (i.e. the user
     is on the login page and hasn't authenticated)."""

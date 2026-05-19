@@ -13,7 +13,7 @@ from flexlog.auth import is_authed, mark_authed
 from flexlog.crypto import (
     InvalidPassword, aes_gcm_unwrap, argon2id_kek, hkdf_subkey, Argon2Params,
 )
-from flexlog.db import Base, attach_engine_at_runtime, make_engine, make_session_factory
+from flexlog.db import attach_engine_at_runtime, make_engine, make_session_factory
 from flexlog.kdf_params import load_kdf_params
 from flexlog.services.auth import bootstrap_state
 

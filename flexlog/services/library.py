@@ -1,13 +1,22 @@
 """Media Library queries: list with reference counts, orphan filter, hard delete.
 
-Hard-delete is the ONLY route that removes a file from disk. It must:
-  1. Inside one DB transaction: delete session_media joins (FK CASCADE);
-     null out person.avatar_media_id and session_link.thumbnail_media_id
-     (FK SET NULL); delete the media_file row.
-  2. After commit: paths.resolve_file_key(...).unlink(missing_ok=True).
+Hard-delete is the ONLY route that removes a file from disk. Two stages:
 
-Order matters: DB commit FIRST, disk unlink SECOND. A failure between
-the two leaves an orphaned file on disk (recoverable manually) rather
+  1. Inside the request transaction: re-check that the MediaFile has
+     ZERO references (session_media, person.avatar, session_link.thumbnail);
+     if any reference still exists, raise MediaInUseError and refuse.
+     The check is duplicated here (`get_references`) even though the
+     Library UI's orphan filter also runs it — the UI filter computes
+     at list-time and can go stale by the moment the user POSTs the
+     delete (another tab races a session save). Refusing prevents the
+     pre-v0.8.0 silent-cascade behavior that quietly deleted joined
+     references.
+  2. After commit: a module-level `@event.listens_for(Session,
+     "after_commit")` listener drains `session.info["pending_unlinks"]`
+     and calls `paths.resolve_file_key(...).unlink(missing_ok=True)`.
+
+DB commit FIRST, disk unlink SECOND. A failure between the two leaves an
+orphaned file on disk (recoverable manually via the Library page) rather
 than a dangling DB row pointing at a deleted file.
 """
 

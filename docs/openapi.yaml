@@ -22,7 +22,7 @@ info:
 
     See `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`
     for product requirements and `CLAUDE.md` for the architecture map.
-  version: "0.8.2"
+  version: "0.9.0"
   license:
     name: see LICENSE in repo root
 
@@ -375,6 +375,10 @@ paths:
       tags: [auth]
       summary: Sign out — clears session, master key, and DB engine.
       operationId: auth.logout
+      # logout is in ALLOWED_UNAUTH_ENDPOINTS — a POST while unauthed
+      # is a harmless no-op that just re-clears already-empty state.
+      # CSRF still required (Flask-WTF global CSRFProtect applies).
+      security: []
       requestBody:
         required: true
         content:
@@ -404,11 +408,18 @@ paths:
           in: query
           schema:
             type: string
-            enum: [alpha, last_session, session_count, avg_overall]
+            default: "overall"
+            # Open-ended because sortable custom dims show up as
+            # `custom:<dim_id>` (unknown to this spec at write-time).
+            # The handler accepts: alias, last_date, session_count,
+            # overall, or custom:<dim_id>. Unknown sort values fall
+            # back to "overall" silently.
           description: |
-            Sort key. `avg_overall` (default) computes the per-person
-            weighted average across all sessions. Sortable custom
-            dimensions appear here as `custom:<dim_id>`.
+            Sort key. Built-in values: `alias`, `last_date`,
+            `session_count`, `overall` (default — per-person weighted
+            average across all sessions). Sortable custom rating
+            dimensions also accepted as `custom:<dim_id>`. Unknown
+            values fall back to `overall`.
       responses:
         '200':
           $ref: '#/components/responses/HtmlPage'
@@ -834,7 +845,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/UploadResponse'
         '413':
-          $ref: '#/components/responses/PayloadTooLarge'
+          description: |
+            413 — upload exceeded `max_upload_mb_per_file`. The
+            service raises `PayloadTooLargeError` (a `MediaUploadError`
+            subclass) which the route maps to 413.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
         '415':
           description: |
             HEIC upload received but `pillow-heif`/`libheif` is
@@ -846,10 +864,12 @@ paths:
         '422':
           description: |
             Validation error — unknown `kind`, no file uploaded,
-            magic-byte mismatch with declared MIME, audio/video
-            container signature failed, kind/media_type mismatch
-            after upload, or HEIC decoded-pixel count over the
-            50MP cap.
+            empty upload, magic-byte mismatch with declared MIME,
+            audio/video container signature failed, kind/media_type
+            mismatch after upload, HEIC decoded-pixel count over the
+            50MP cap, missing master key, or concurrent-dedup
+            race-on-race. Any `MediaUploadError` not specifically
+            classified as 413 or 415 lands here.
           content:
             application/json:
               schema:

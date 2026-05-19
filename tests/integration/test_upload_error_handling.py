@@ -133,7 +133,8 @@ def test_upload_rejects_kind_mismatch(authed_client):
 
 
 def test_upload_rejects_oversize_with_413(authed_client, app):
-    """A file larger than the per-kind cap → MediaUploadError → 413."""
+    """A file larger than the per-kind cap → PayloadTooLargeError → 413
+    (specific subclass; other MediaUploadErrors return 422 instead)."""
     import io
     cfg = app.config["FLEXLOG"]
     over_cap_bytes = (cfg.limits.max_upload_mb_per_file + 1) * 1024 * 1024
@@ -149,3 +150,25 @@ def test_upload_rejects_oversize_with_413(authed_client, app):
     )
     assert resp.status_code == 413
     assert "size cap" in resp.get_data(as_text=True).lower()
+
+
+def test_upload_returns_422_not_413_on_validation_error(authed_client):
+    """Regression for pre-release-review Critical #2: non-size
+    MediaUploadErrors (here: magic-byte mismatch on a JPEG declared
+    as PNG) used to return 413 from the blanket `except MediaUploadError`
+    handler. Now they correctly return 422."""
+    import io
+    jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 500
+    resp = authed_client.post(
+        "/sessions/upload",
+        data={
+            "kind": "photo",
+            "file": (io.BytesIO(jpeg), "x.png", "image/png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 422, (
+        f"magic-byte mismatch should be 422, not 413 — got "
+        f"{resp.status_code}: {resp.get_data(as_text=True)[:200]}"
+    )
+    assert "magic bytes" in resp.get_data(as_text=True).lower()

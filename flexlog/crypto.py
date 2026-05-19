@@ -1,14 +1,17 @@
 """Cryptographic primitives for flexlog's encryption-at-rest feature.
 
-Three layers:
+Three primitive layers, all defined in this module:
   * Argon2id-based KEK derivation from a user-typed password + salt.
   * AES-GCM wrap/unwrap of small secrets (master key, FEKs).
-  * HKDF-based subkey derivation for SQLCipher passphrase, per-file FEKs,
-    per-chunk nonces.
+  * HKDF-based subkey derivation for the SQLCipher passphrase,
+    per-file FEKs, and per-chunk nonces.
 
-A separate chunked AES-GCM file format (encrypt entire file with
-deterministic per-chunk nonces, range-decrypt by seeking to the relevant
-chunks) is added in a later step in this module.
+On top of those, this module also defines the chunked AES-GCM file
+format used for encrypted media (16-byte `FLE0` header + N chunks each
+of plaintext_chunk_size bytes + 16-byte GCM tag, with deterministic
+per-chunk nonces derived from `(master_key, file_sha, chunk_index)`).
+Range decryption (`decrypt_file_range`) seeks to only the chunks
+intersecting the requested byte range.
 
 The module deliberately holds no Flask imports — keeps it testable with
 plain bytes.
@@ -128,6 +131,13 @@ class FileHeader:
 
 
 def build_header(plaintext_size: int, chunk_size: int = DEFAULT_CHUNK_SIZE) -> bytes:
+    """Build the 16-byte file header: `MAGIC (4) + version (1) +
+    chunk_size (3, uint24 BE) + plaintext_size (8, uint64 BE)`.
+
+    Raises ValueError on out-of-range inputs:
+      - chunk_size must be in (0, 2^24)  — fits in 24 bits, non-zero
+      - plaintext_size must be in [0, 2^63)  — non-negative, fits in int64
+    """
     if not (0 < chunk_size < (1 << 24)):
         raise ValueError("chunk_size must fit in 24 bits and be positive")
     if plaintext_size < 0 or plaintext_size > (1 << 63) - 1:
@@ -138,6 +148,13 @@ def build_header(plaintext_size: int, chunk_size: int = DEFAULT_CHUNK_SIZE) -> b
 
 
 def parse_header(raw: bytes) -> FileHeader:
+    """Parse a 16-byte file header into a FileHeader dataclass.
+
+    Raises ValueError on:
+      - `len(raw) < FILE_HEADER_SIZE`  — truncated header
+      - wrong magic bytes  — file isn't a flexlog encrypted blob
+      - unknown version byte  — newer encryption format we can't read
+    """
     if len(raw) < FILE_HEADER_SIZE:
         raise ValueError("header too short")
     magic = raw[0:4]

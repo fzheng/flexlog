@@ -1,8 +1,9 @@
 """Status-bar metrics: total storage usage + last session save.
 
 Pure-ish service: takes a SQLAlchemy Session + a Path to the data dir,
-returns a StatusSnapshot. No Flask imports — the context processor in
-flexlog.web.filters wires it into the request lifecycle.
+returns a StatusSnapshot. No Flask imports — the context processor
+`_inject_status_snapshot` in `flexlog/app.py` wires it into the request
+lifecycle.
 """
 from __future__ import annotations
 

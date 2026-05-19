@@ -40,6 +40,7 @@ _EXPECTED_PUBLIC_ENDPOINTS = {
     "setup.set_password_form",
     "setup.set_password",
     "setup.recover",
+    "auth.logout",  # POST while unauthed is a harmless no-op — gate allows.
 }
 
 
@@ -274,6 +275,47 @@ def test_public_endpoints_match_runtime_allowlist(spec):
             f"isn't in ALLOWED_UNAUTH_ENDPOINTS. The auth gate will "
             f"redirect requests away from it."
         )
+
+
+def test_runtime_allowlist_endpoints_documented_as_public(spec, app_routes):
+    """Inverse of the above: every endpoint in ALLOWED_UNAUTH_ENDPOINTS
+    must be documented with `security: []` in the spec. This catches
+    the case where a route is publicly reachable at runtime but the
+    spec misleadingly claims it requires auth — the original drift
+    test was unidirectional and missed this."""
+    from flexlog.auth import ALLOWED_UNAUTH_ENDPOINTS
+
+    # Endpoints in the allowlist that ALSO show up in url_map (skip
+    # any allowlist entries for prefix-matched endpoints we don't
+    # actually register, like a hypothetical `static`).
+    real_endpoints = {r["endpoint"] for r in app_routes}
+    allowlisted_and_routed = ALLOWED_UNAUTH_ENDPOINTS & real_endpoints
+
+    # Build map: operationId -> security setting from spec.
+    op_security: dict[str, object] = {}
+    for path_item in spec.get("paths", {}).values():
+        for method in ("get", "post", "put", "patch", "delete"):
+            op = path_item.get(method)
+            if not op:
+                continue
+            opid = op.get("operationId")
+            if opid:
+                op_security[opid] = op.get("security")  # None / [] / [...]
+
+    missing_security = []
+    for endpoint in sorted(allowlisted_and_routed):
+        sec = op_security.get(endpoint)
+        if sec != []:
+            missing_security.append(
+                f"  {endpoint}  (spec security: {sec!r})"
+            )
+    assert not missing_security, (
+        "Endpoints in flexlog/auth.py:ALLOWED_UNAUTH_ENDPOINTS are "
+        "publicly reachable at runtime but the spec does NOT mark "
+        "them with `security: []`. Either update the spec to declare "
+        "them public, or remove them from ALLOWED_UNAUTH_ENDPOINTS:\n"
+        + "\n".join(missing_security)
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────

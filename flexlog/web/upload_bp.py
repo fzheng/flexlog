@@ -13,6 +13,7 @@ from flask import Blueprint, jsonify, request
 from flexlog.db import get_db
 from flexlog.services.media import (
     MediaUploadError,
+    PayloadTooLargeError,
     UnsupportedMediaTypeError,
     orphan_delete_media_file,
     upload_to_media_file,
@@ -39,9 +40,16 @@ def upload():
     except UnsupportedMediaTypeError as exc:
         db.rollback()
         return jsonify({"error": str(exc)}), 415
-    except MediaUploadError as exc:
+    except PayloadTooLargeError as exc:
         db.rollback()
         return jsonify({"error": str(exc)}), 413
+    except MediaUploadError as exc:
+        # Everything else (empty upload, magic-byte mismatch, missing
+        # master key, HEIC pixel-bomb, dedup race) is a validation
+        # failure — 422 per RFC 9110. The reviewer found we used to
+        # return 413 here, which lied to clients about the cause.
+        db.rollback()
+        return jsonify({"error": str(exc)}), 422
 
     if mf.media_type != _KIND_TO_MEDIA_TYPE[kind]:
         db.rollback()
