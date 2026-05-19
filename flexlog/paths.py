@@ -12,9 +12,41 @@ The full file-key API (resolve_file_key, file_key_for) is added in Task 3.
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
 ENV_DATA_DIR = "FLEXLOG_DATA_DIR"
+
+
+def atomic_write_text(path: Path, content: str, mode: int = 0o600) -> None:
+    """Write `content` to `path` atomically.
+
+    O_EXCL-create a tmp file with a random suffix, write + flush + fsync,
+    then os.replace onto the destination. A crash at any point before
+    the replace leaves the destination untouched; a crash after leaves
+    a complete new file. The random suffix means a stale tmp from a
+    prior crash can't collide on the next attempt.
+
+    Mode defaults to 0o600 since this helper is used for sensitive
+    files (config.json, .secret_key). Pass mode=0o644 if you need
+    world-readable content.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name = f".{path.name}.tmp.{secrets.token_hex(8)}"
+    tmp = path.parent / tmp_name
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp), str(path))
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 class DataDirError(RuntimeError):

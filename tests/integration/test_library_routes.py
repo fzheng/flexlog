@@ -83,19 +83,54 @@ def test_library_orphan_filter(authed_client, db_session):
     assert "linked.jpg" not in resp
 
 
-def test_library_hard_delete_removes_file(authed_client, db_session):
+def test_library_hard_delete_removes_orphan(authed_client, db_session):
+    """Happy path: a file with zero references hard-deletes cleanly,
+    DB row gone, disk file gone."""
+    from sqlalchemy import text
     from flexlog import paths
     from flexlog.db.models import MediaFile
     p = _make_person(db_session)
     s = _make_session(db_session, p.id)
     mf = _attach_photo(db_session, s.id, filename="x.jpg")
-    # Unlink first so the file becomes orphan-deletable via hard_delete
+    # Truly orphan it first — the previous version of this test claimed
+    # to unlink in the comment but didn't, relying on the (since-removed)
+    # FK cascade in hard_delete to silently nuke the join.
+    db_session.execute(
+        text("DELETE FROM session_media WHERE media_file_id = :i"), {"i": mf.id}
+    )
+    db_session.commit()
     target = paths.resolve_file_key(mf.file_key)
     assert target.exists()
     authed_client.post(f"/library/{mf.id}/hard_delete", follow_redirects=False)
     db_session.expire_all()
     assert db_session.get(MediaFile, mf.id) is None
     assert not target.exists()
+
+
+def test_library_hard_delete_refuses_referenced(authed_client, db_session):
+    """POST /library/<id>/hard_delete on a still-referenced file must
+    NOT silently nuke the reference. The route surfaces a friendly
+    flash + redirect; the DB state is unchanged."""
+    from flexlog.db.models import MediaFile, SessionMedia
+    from sqlalchemy import select, func
+    p = _make_person(db_session)
+    s = _make_session(db_session, p.id)
+    mf = _attach_photo(db_session, s.id, filename="linked.jpg")
+    db_session.commit()
+
+    resp = authed_client.post(
+        f"/library/{mf.id}/hard_delete", follow_redirects=False,
+    )
+    # Redirect (303), not 500 — the user sees a flash error.
+    assert resp.status_code in (302, 303)
+    db_session.expire_all()
+    # Nothing was deleted.
+    assert db_session.get(MediaFile, mf.id) is not None
+    sm_count = db_session.execute(
+        select(func.count()).select_from(SessionMedia)
+        .where(SessionMedia.media_file_id == mf.id)
+    ).scalar_one()
+    assert sm_count == 1
 
 
 def test_library_hard_delete_404(authed_client):

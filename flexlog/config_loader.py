@@ -347,9 +347,12 @@ def load_or_bootstrap(path: Path) -> Config:
     rewriting the file. Other validation errors are NOT silently rewritten
     — they raise so the user can fix their hand-edited file.
     """
+    from flexlog.paths import atomic_write_text
+
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(DEFAULT_CONFIG_JSON, encoding="utf-8")
+        # Atomic write: a crash mid-write previously left a zero-byte
+        # config.json that broke every subsequent boot.
+        atomic_write_text(path, DEFAULT_CONFIG_JSON, mode=0o644)
         return load_config(path)
 
     try:
@@ -361,6 +364,10 @@ def load_or_bootstrap(path: Path) -> Config:
         sv = raw.get("schema_version")
         if sv is None or sv in (1, 2):
             upgraded = _upgrade_pre_v3_config_dict(raw)
-            path.write_text(json.dumps(upgraded, indent=2), encoding="utf-8")
+            # Same atomic guarantee for the upgrade write — a crash here
+            # used to leave a truncated config the next boot couldn't parse.
+            atomic_write_text(
+                path, json.dumps(upgraded, indent=2), mode=0o644,
+            )
 
     return load_config(path)

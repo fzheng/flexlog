@@ -216,3 +216,68 @@ def test_resolve_file_key_oserror_from_resolve_wrapped(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "resolve", _bad_resolve)
     with pytest.raises(FileKeyError, match="could not be resolved"):
         resolve_file_key("bad_key.jpg")
+
+
+# ------------------------------------------------------------ atomic_write_text
+
+
+def test_atomic_write_text_creates_file_with_mode(tmp_path):
+    from flexlog.paths import atomic_write_text
+    target = tmp_path / "subdir" / "file.txt"
+    atomic_write_text(target, "hello world", mode=0o600)
+    assert target.read_text() == "hello world"
+    # 0o600 on POSIX. Skip the exact-mode check on Windows where
+    # POSIX modes don't apply cleanly.
+    import os, stat
+    if os.name == "posix":
+        actual = stat.S_IMODE(target.stat().st_mode)
+        assert actual == 0o600, f"expected 0600, got {oct(actual)}"
+
+
+def test_atomic_write_text_overwrites_existing(tmp_path):
+    from flexlog.paths import atomic_write_text
+    target = tmp_path / "f.txt"
+    target.write_text("old", encoding="utf-8")
+    atomic_write_text(target, "new", mode=0o644)
+    assert target.read_text() == "new"
+
+
+def test_atomic_write_text_cleans_tmp_on_error(tmp_path, monkeypatch):
+    """If fdopen.write raises mid-write, the tmp file must be cleaned
+    up so a subsequent retry doesn't trip O_EXCL with a stale tmp."""
+    from flexlog import paths
+    target = tmp_path / "f.txt"
+    target.write_text("untouched")
+
+    # Force the write to fail.
+    real_fdopen = __import__("os").fdopen
+    def fake_fdopen(*a, **kw):
+        f = real_fdopen(*a, **kw)
+        orig_write = f.write
+        def bad_write(s):
+            raise OSError("simulated disk full")
+        f.write = bad_write
+        return f
+    monkeypatch.setattr("flexlog.paths.os.fdopen", fake_fdopen)
+
+    with pytest.raises(OSError):
+        paths.atomic_write_text(target, "new", mode=0o644)
+    # Original survives — no torn write.
+    assert target.read_text() == "untouched"
+    # No stray .tmp.* files left behind.
+    leftovers = [p for p in tmp_path.iterdir() if p.name.startswith(f".{target.name}.tmp")]
+    assert leftovers == [], f"stray tmp files: {leftovers}"
+
+
+def test_atomic_write_text_random_suffix_survives_stale_tmp(tmp_path):
+    """A leftover tmp file from a prior crash with a similar name must
+    not block the next atomic_write_text. The randomized suffix means
+    O_EXCL only collides if 16 bytes of entropy match — effectively
+    never."""
+    from flexlog.paths import atomic_write_text
+    target = tmp_path / "f.txt"
+    # Plant a stale tmp file under the OLD fixed-name pattern. The new
+    # randomized writer must ignore it and succeed.
+    (tmp_path / ".f.txt.tmp").write_text("stale")
+    atomic_write_text(target, "fresh", mode=0o644)
+    assert target.read_text() == "fresh"

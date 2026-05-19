@@ -45,20 +45,12 @@ def load_or_create_secret_key(path: Path) -> str:
         if not contents:
             raise SecretKeyError(f"secret key file at {path} is empty")
         return contents
-    # First-run generation
+    # First-run generation. Delegate to the shared atomic-write helper
+    # which uses a randomized tmp suffix — a fixed `.secret_key.tmp`
+    # left over from a prior crash used to crash-loop the app on next
+    # boot via FileExistsError on the O_EXCL create.
+    from flexlog.paths import atomic_write_text
+
     new_key = secrets.token_hex(_KEY_BYTES)
-    # Write atomically via tmp + rename, with 0600 from the start.
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(new_key)
-    except Exception:
-        # Best-effort cleanup; do not mask the original error
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
-        raise
-    os.replace(tmp, path)
+    atomic_write_text(path, new_key, mode=0o600)
     return new_key

@@ -231,10 +231,27 @@ def migrate_to_latest(engine: Engine) -> None:
     """Run all pending migrations in order. Call this from anywhere that
     attaches an engine (login, setup, test fixtures).
 
+    Refuses to attach if the DB reports a `user_version` higher than the
+    current build understands — that indicates a downgrade (a newer
+    flexlog stamped the DB, then the user is now running an older
+    build). Continuing would let the old ORM write into a schema it
+    doesn't know, silently dropping or mis-typing newer columns. Better
+    to refuse and surface a clear error.
+
     Any underlying exception is wrapped in `MigrationError` so the Flask
     error handler can render a friendly setup-error page rather than a
     raw 500."""
     try:
+        with engine.begin() as conn:
+            version = conn.execute(text("PRAGMA user_version")).scalar() or 0
+            if version > TARGET_VERSION:
+                raise MigrationError(
+                    f"database schema version {version} is newer than this "
+                    f"build supports (max {TARGET_VERSION}). You are likely "
+                    f"running an older flexlog against a database stamped by "
+                    f"a newer one. Upgrade flexlog or restore from a backup "
+                    f"taken before the newer version touched the data dir."
+                )
         migrate_v1_to_v2(engine)
         repair_dangling_session_fk_refs(engine)
     except MigrationError:

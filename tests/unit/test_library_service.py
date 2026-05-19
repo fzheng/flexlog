@@ -126,10 +126,47 @@ def test_hard_delete_removes_row_and_disk_file(app, db_session):
     assert not target.exists()
 
 
-def test_hard_delete_cascades_session_media_and_nulls_avatar(app, db_session):
-    """Hard-delete from Library: session_media joins go via cascade; avatar
-    FK SET NULL.
-    """
+def test_hard_delete_refuses_when_referenced(app, db_session):
+    """Hard-delete from Library now REFUSES on any non-zero reference
+    count (session_media, avatar, or link thumbnail). The previous
+    behavior silently cascaded — that meant the user could "delete an
+    orphan" and accidentally nuke their session's media link if the
+    orphan-flag had gone stale between list-time and POST. Refusing
+    forces them to unlink the references first."""
+    from sqlalchemy import text
+
+    from flexlog.services.library import MediaInUseError
+    from flexlog.services.media import link_to_session
+
+    photo = _upload(app, db_session, "a.jpg", JPEG_BYTES, "image/jpeg")
+    p = create_person(db_session, alias="Alice", tag_input="")
+    db_session.commit()
+    p.avatar_media_id = photo.id
+    s = create_session(
+        db_session, person_id=p.id, session_date="2026-04-01",
+        ratings={}, notes=None, link_urls=[],
+    )
+    db_session.commit()
+    link_to_session(db_session, s.id, photo.id, sort_order=0)
+    db_session.commit()
+
+    assert db_session.execute(text("SELECT COUNT(*) FROM session_media")).scalar() == 1
+    with app.app_context():
+        with pytest.raises(MediaInUseError):
+            hard_delete(db_session, photo.id)
+    db_session.rollback()
+
+    # Crucially: nothing was deleted. Photo, session_media, and avatar
+    # link all survive.
+    db_session.expire_all()
+    assert db_session.get(MediaFile, photo.id) is not None
+    assert db_session.execute(text("SELECT COUNT(*) FROM session_media")).scalar() == 1
+    assert db_session.get(Person, p.id).avatar_media_id == photo.id
+
+
+def test_hard_delete_succeeds_after_references_removed(app, db_session):
+    """Once all references are dropped, hard_delete proceeds. This is
+    the canonical workflow the UI guides the user through."""
     from sqlalchemy import text
 
     from flexlog.services.media import link_to_session
@@ -138,19 +175,24 @@ def test_hard_delete_cascades_session_media_and_nulls_avatar(app, db_session):
     p = create_person(db_session, alias="Alice", tag_input="")
     db_session.commit()
     p.avatar_media_id = photo.id
-    s = create_session(db_session, person_id=p.id, session_date="2026-04-01", ratings={}, notes=None, link_urls=[])
+    s = create_session(
+        db_session, person_id=p.id, session_date="2026-04-01",
+        ratings={}, notes=None, link_urls=[],
+    )
     db_session.commit()
     link_to_session(db_session, s.id, photo.id, sort_order=0)
     db_session.commit()
 
-    assert db_session.execute(text("SELECT COUNT(*) FROM session_media")).scalar() == 1
+    # Strip references first.
+    db_session.execute(text("DELETE FROM session_media WHERE media_file_id = :i"), {"i": photo.id})
+    p.avatar_media_id = None
+    db_session.commit()
+
     with app.app_context():
         hard_delete(db_session, photo.id)
         db_session.commit()
-    db_session.expire_all()
-    assert db_session.execute(text("SELECT COUNT(*) FROM session_media")).scalar() == 0
-    refreshed_p = db_session.get(Person, p.id)
-    assert refreshed_p.avatar_media_id is None
+
+    assert db_session.get(MediaFile, photo.id) is None
 
 
 def test_hard_delete_missing_id_raises(app, db_session):

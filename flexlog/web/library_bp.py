@@ -6,6 +6,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 
 from flexlog.db import get_db
 from flexlog.services.library import (
+    MediaInUseError,
     MediaNotFoundError,
     hard_delete,
     list_library,
@@ -40,6 +41,16 @@ def hard_delete_route(media_file_id: str):
         hard_delete(db, media_file_id)
     except MediaNotFoundError:
         abort(404)
+    except MediaInUseError as exc:
+        # Reference race: by the time the user clicked delete on what
+        # the listing showed as an orphan, another tab added a reference.
+        db.rollback()
+        flash(
+            "Cannot delete — this file is now referenced by a session, "
+            "avatar, or link thumbnail. Remove those references first.",
+            "error",
+        )
+        return redirect(url_for("library.index"))
     db.commit()
     flash("Deleted.", "success")
     return redirect(url_for("library.index"))

@@ -104,6 +104,24 @@ def attach_to_app(app: Flask, engine: Engine, session_factory: sessionmaker[Sess
     app.config[_FACTORY_KEY] = session_factory
 
 
+def detach_engine_at_runtime(app: Flask) -> None:
+    """Dispose the active engine and remove it from app.config.
+
+    Symmetric counterpart to attach_engine_at_runtime. Call on logout to
+    drop pooled connections + clear the engine reference so a buggy
+    auth-gate exception (or a future route accidentally added to the
+    unauth allowlist) cannot reach a still-attached engine.
+
+    Idempotent: no-op if no engine is attached."""
+    engine = app.config.pop(_ENGINE_KEY, None)
+    app.config.pop(_FACTORY_KEY, None)
+    if engine is not None:
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+
+
 def attach_engine_at_runtime(app: Flask, engine: Engine,
                               session_factory: sessionmaker[Session]) -> None:
     """Swap a fresh engine + factory into the app config AFTER login.

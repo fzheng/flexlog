@@ -88,6 +88,23 @@ def test_logout_clears_session(authed_client):
     assert resp2.headers["Location"].endswith("/")
 
 
+def test_logout_drops_master_key_and_engine_from_config(authed_client):
+    """Defense in depth (I1): logout must remove MASTER_KEY + the DB
+    engine reference from app.config. A buggy route added to the unauth
+    allowlist by mistake then cannot reach user data via get_db()."""
+    app = authed_client.application
+    # Pre-state: authed_client fixture has logged in, so both should be present.
+    assert app.config.get("MASTER_KEY") is not None, "fixture should be logged in"
+    assert app.config.get("FLEXLOG_DB_ENGINE") is not None
+
+    authed_client.post("/logout")
+
+    assert app.config.get("MASTER_KEY") is None, \
+        "MASTER_KEY must be removed from app.config on logout"
+    assert app.config.get("FLEXLOG_DB_ENGINE") is None, \
+        "DB engine must be detached on logout"
+
+
 def test_missing_kdf_params_redirects_to_setup(monkeypatch, tmp_path):
     """When no kdf_params.json + no DB, GET / 303s to the set-password page."""
     from flexlog.config_loader import DEFAULT_CONFIG_JSON

@@ -26,6 +26,18 @@ class MediaNotFoundError(LookupError):
     """Raised by hard_delete when the target media_file id does not exist."""
 
 
+class MediaInUseError(RuntimeError):
+    """Raised by hard_delete when the target media_file is still
+    referenced (session_media join, person avatar, or link thumbnail).
+
+    Without this check, a Library UI that filters by `is_orphan` could
+    race a concurrent session save in another tab: the orphan flag is
+    computed at list time and a new reference can be added between then
+    and the hard-delete POST. The route handler should catch this and
+    surface a clear "still in use" message rather than silently dropping
+    refs via FK CASCADE/SET NULL."""
+
+
 @dataclass(frozen=True)
 class References:
     session_media_count: int
@@ -90,6 +102,12 @@ def list_library(
 def hard_delete(db: Session, media_file_id: str) -> None:
     """Hard-delete a media file: cascade joins, null out FKs, drop row, unlink disk file.
 
+    Refuses (raises MediaInUseError) if any session_media join, person
+    avatar, or link thumbnail still references the file. The Library UI's
+    `is_orphan` filter is computed at list-time and can be stale by the
+    moment the user POSTs the delete — re-check here, inside the same
+    transaction, before destroying data.
+
     Caller is responsible for `db.commit()` after the call. The disk unlink
     happens AFTER the commit in the same call (so a partial failure never
     leaves a dangling DB row).
@@ -97,9 +115,15 @@ def hard_delete(db: Session, media_file_id: str) -> None:
     mf = db.get(MediaFile, media_file_id)
     if mf is None:
         raise MediaNotFoundError(media_file_id)
+    refs = get_references(db, mf.id)
+    if refs.total > 0:
+        raise MediaInUseError(
+            f"media_file {media_file_id} still has {refs.total} reference(s): "
+            f"sessions={refs.session_media_count}, "
+            f"avatars={refs.avatar_count}, "
+            f"link_thumbnails={refs.link_thumbnail_count}"
+        )
     file_key = mf.file_key
-    # The FK constraints handle cascade (session_media) and SET NULL (avatar,
-    # thumbnail). Just delete the row.
     db.delete(mf)
     db.flush()
     # The caller should commit AFTER this returns. We perform the disk unlink
