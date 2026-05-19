@@ -5,7 +5,7 @@ DATA_DIR     ?= $(CURDIR)/flexlog-data
 PORT         ?= 5050
 INSTALL_MARK := $(VENV)/.installed
 
-.PHONY: help install lock audit run test test-cov smoke clean
+.PHONY: help install lock audit openapi run test test-cov smoke clean
 
 help:
 	@echo "flexlog — make targets"
@@ -52,6 +52,10 @@ lock: | $(VENV)
 
 audit: install
 	$(BIN)/pip-audit --strict --requirement requirements.lock
+
+openapi: install
+	$(BIN)/python -m openapi_spec_validator docs/openapi.yaml
+	$(BIN)/pytest tests/integration/test_openapi.py -v --no-cov
 
 run: install
 	@mkdir -p $(DATA_DIR)

@@ -1,0 +1,1143 @@
+openapi: 3.0.3
+info:
+  title: flexlog HTTP API
+  description: |
+    flexlog is a local-first, single-user journal app. The HTTP API
+    is served by the embedded Flask app at `http://127.0.0.1:<PORT>/`
+    (default port 5050). This spec documents every route the app
+    exposes — public unauthenticated endpoints (the fake-Google
+    landing, setup, static), authenticated user-facing endpoints,
+    and the small set of AJAX endpoints the in-app JS uses.
+
+    **The spec is the contract.** Adding a route requires adding it
+    here; removing a route requires removing it here. Drift is
+    detected by `tests/integration/test_openapi.py`. If you're about
+    to deprecate a route, set `deprecated: true` on the operation and
+    add `x-removal-version: "X.Y.Z"`; the test surfaces this in a
+    summary and the changelog can pick it up.
+
+    **Out of scope:** request/response body schemas for HTML pages.
+    Routes that return `text/html` are documented at status-code level
+    only. JSON endpoints (`POST /sessions/upload`) get full schemas.
+
+    See `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`
+    for product requirements and `CLAUDE.md` for the architecture map.
+  version: "0.8.2"
+  license:
+    name: see LICENSE in repo root
+
+servers:
+  - url: http://127.0.0.1:5050
+    description: Default local development server
+
+# ───────────────────────────────────────────────────────────────────────
+# TAGS — one per blueprint, matches the flexlog/web/*.py file structure.
+# ───────────────────────────────────────────────────────────────────────
+tags:
+  - name: landing
+    description: |
+      Public entry point. `GET /` shows the fake-Google clone for
+      unauthenticated users; `POST /` is the login submit handler that
+      either authenticates (correct admin password) or 303-redirects
+      to Google so the typed string doesn't reveal flexlog's existence.
+  - name: setup
+    description: |
+      First-run admin-password setup + orphaned-data recovery. Gated by
+      `bootstrap_state()`: routes 303 back to landing if invoked from
+      the wrong app state.
+  - name: auth
+    description: Logout. Clears session, master key, and DB engine.
+  - name: dashboard
+    description: |
+      Authenticated home page. Lists people with search + sort.
+  - name: people
+    description: People CRUD + avatar dataURL upload.
+  - name: sessions
+    description: |
+      Sessions CRUD. Each session belongs to a person, has a date,
+      ratings dict, notes, links (each with optional pasted thumbnail),
+      and media joins (photos/audio/video).
+  - name: media
+    description: |
+      Encrypted-media read. `GET /media/<file_key>` streams the
+      decrypted bytes (with Range support for inline audio/video
+      playback and PhotoSwipe).
+  - name: upload
+    description: |
+      AJAX progressive-upload endpoints used by the session form
+      and the avatar cropper. Returns JSON.
+  - name: library
+    description: |
+      Media Library — list + filter + hard-delete. Hard-delete is the
+      ONLY code path that removes a file from disk; refuses if any
+      session/avatar/link-thumbnail still references the file.
+  - name: settings
+    description: |
+      `/settings` configuration UI. Five tabs (App / Ratings / UI strings
+      / Limits / Raw JSON) each POST to their own endpoint. Plus
+      `/settings/reload` (re-read config.json from disk) and
+      `/settings/change-password` (re-wrap master key under new KEK).
+
+# ───────────────────────────────────────────────────────────────────────
+# SECURITY SCHEMES
+# ───────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        Flask session cookie, signed with the app's SECRET_KEY. The
+        cookie contains `authed=true` + an `epoch` matching
+        `app.config["AUTH_EPOCH"]`. Server restart regenerates the
+        epoch and invalidates all existing cookies. Set `HttpOnly`
+        and `SameSite=Lax`.
+    csrfFormToken:
+      type: apiKey
+      in: cookie
+      name: csrf_token
+      description: |
+        Flask-WTF CSRF token. Required on every state-changing request
+        (POST/DELETE). Submitted as the `csrf_token` form field OR
+        the `X-CSRFToken` HTTP header (the latter is what the AJAX
+        JS uses). Token value is published in
+        `<meta name="csrf-token">` in `_base.html` and in every
+        form's `{{ form.csrf_token }}` hidden input.
+
+  parameters:
+    PersonId:
+      name: person_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of a Person row.
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of a Session row.
+    SessionLinkId:
+      name: link_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of a SessionLink row.
+    SessionMediaId:
+      name: session_media_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of a SessionMedia join row.
+    MediaFileId:
+      name: media_file_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of a MediaFile row.
+    FileKey:
+      name: file_key
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.[a-z0-9]+$"
+      description: |
+        Sharded SHA-256-based key like `ab/cd/abcdef...12.jpg`. Two
+        hex bytes of the SHA become the directory shards; the full
+        64-char hex SHA is the filename stem. The extension matches
+        the file's MIME (jpg/png/webp/mp3/mp4/etc).
+
+  responses:
+    HtmlPage:
+      description: HTML page rendered for the user's browser.
+      content:
+        text/html:
+          schema:
+            type: string
+    RedirectToLanding:
+      description: |
+        303 redirect to `/` (the landing page). Used by the auth gate
+        for any unauthenticated request to a protected route, and by
+        the setup blueprint when state doesn't match the requested
+        endpoint.
+      headers:
+        Location:
+          schema:
+            type: string
+            example: "/"
+    RedirectAfterAction:
+      description: 303 redirect after a successful state-changing action.
+      headers:
+        Location:
+          schema:
+            type: string
+    NotFound:
+      description: 404 — target resource does not exist.
+      content:
+        text/html:
+          schema:
+            type: string
+    PayloadTooLarge:
+      description: |
+        413 — request body exceeded the configured limit
+        (`max_upload_mb_per_file` per file, or Flask's
+        `MAX_CONTENT_LENGTH` of 3 GiB for the whole request).
+    UnsupportedMediaType:
+      description: |
+        415 — file MIME type is supported in theory but cannot be
+        processed in this environment (e.g., HEIC upload when
+        `libheif` is unavailable).
+    ValidationError:
+      description: |
+        422 — request body is well-formed but contains values that
+        the service layer refuses to accept (e.g., unknown
+        `kind`, kind-mismatched MIME, stale media file_keys).
+    BadRequest:
+      description: |
+        400 — form validation failed; page re-renders with field-level
+        errors highlighted.
+    RangeNotSatisfiable:
+      description: |
+        416 — malformed Range header, or requested range falls outside
+        the file's plaintext length. Includes `Content-Range: bytes */N`.
+
+  schemas:
+    UploadResponse:
+      type: object
+      required: [file_key, original_filename, media_type, size_bytes, mime]
+      properties:
+        file_key:
+          type: string
+          description: Sharded SHA-based path used by `/media/<file_key>`.
+        original_filename:
+          type: string
+          nullable: true
+          description: |
+            Filename the client submitted. Stored on MediaFile.original_filename.
+            Rendered HTML-escaped in templates; never `|safe`.
+        media_type:
+          type: string
+          enum: [photo, audio, video]
+        size_bytes:
+          type: integer
+          minimum: 1
+          description: Plaintext size before encryption.
+        mime:
+          type: string
+          description: |
+            Final declared MIME. For HEIC uploads this is `image/jpeg`
+            (transcoded) even though the client sent `image/heic`.
+    UploadError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+# ───────────────────────────────────────────────────────────────────────
+# DEFAULT SECURITY: most routes require session auth.
+# Public routes override to `security: []`.
+# ───────────────────────────────────────────────────────────────────────
+security:
+  - sessionCookie: []
+
+# ───────────────────────────────────────────────────────────────────────
+# PATHS
+# ───────────────────────────────────────────────────────────────────────
+paths:
+
+  /:
+    get:
+      tags: [landing]
+      summary: Render the fake-Google landing page (or dashboard if authed).
+      operationId: landing.index
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '303':
+          description: |
+            Redirect to /setup/set-password (first-run state) or
+            /setup/recover (orphaned-data state). Dashboard render
+            short-circuits this endpoint when the user is already
+            authenticated.
+    post:
+      tags: [landing]
+      summary: Submit the landing search box (login or fake search).
+      operationId: landing.submit
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token:
+                  type: string
+                q:
+                  type: string
+                  description: |
+                    The typed query. If it matches the admin password,
+                    flexlog unwraps the master key, attaches the DB
+                    engine, marks the session authed, and 303s to
+                    /dashboard. If it looks sensitive (password-shape,
+                    SSN, Luhn-valid CC) it 303s to google.com root
+                    so the value doesn't leak into Google's query
+                    logs. Anything else 303s to google.com/search?q=...
+      responses:
+        '200':
+          description: Empty query — re-render landing.
+          content:
+            text/html:
+              schema:
+                type: string
+        '303':
+          description: |
+            Redirect to /dashboard (correct password) or google.com
+            (incorrect password — root if sensitive-shape, search
+            otherwise).
+
+  /setup/set-password:
+    get:
+      tags: [setup]
+      summary: Show first-run admin-password form.
+      operationId: setup.set_password_form
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '303':
+          $ref: '#/components/responses/RedirectToLanding'
+    post:
+      tags: [setup]
+      summary: Set the admin password (first run only).
+      operationId: setup.set_password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [password, password_confirm]
+              properties:
+                csrf_token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+                password_confirm:
+                  type: string
+                  minLength: 8
+      responses:
+        '303':
+          description: |
+            Redirect to /. On success the engine is attached for the
+            current process and the user is sent to the landing page
+            where they log in.
+        '400':
+          description: |
+            Password too short, missing, or mismatched confirm.
+            Returns the form HTML with an inline error.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /setup/recover:
+    get:
+      tags: [setup]
+      summary: Show recovery instructions for legacy plaintext data.
+      operationId: setup.recover
+      security: []
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '303':
+          $ref: '#/components/responses/RedirectToLanding'
+
+  /logout:
+    post:
+      tags: [auth]
+      summary: Sign out — clears session, master key, and DB engine.
+      operationId: auth.logout
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token:
+                  type: string
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectToLanding'
+
+  /dashboard:
+    get:
+      tags: [dashboard]
+      summary: List people with search + sort.
+      operationId: home.home
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Free-text search across alias + tags.
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [alpha, last_session, session_count, avg_overall]
+          description: |
+            Sort key. `avg_overall` (default) computes the per-person
+            weighted average across all sessions. Sortable custom
+            dimensions appear here as `custom:<dim_id>`.
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+
+  /people/new:
+    get:
+      tags: [people]
+      summary: Show the new-person form (with avatar cropper).
+      operationId: people.new
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+
+  /people:
+    post:
+      tags: [people]
+      summary: Create a person.
+      operationId: people.create
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, alias]
+              properties:
+                csrf_token:
+                  type: string
+                alias:
+                  type: string
+                  maxLength: 200
+                tags:
+                  type: string
+                  description: Comma-separated tag names.
+                  maxLength: 1000
+                avatar_blob:
+                  type: string
+                  description: |
+                    Optional `data:image/...;base64,...` URL produced
+                    by the Cropper.js client. Decoded server-side and
+                    pushed through `upload_to_media_file`.
+                  maxLength: 12582912
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /people/{person_id}:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    get:
+      tags: [people]
+      summary: Person detail page.
+      operationId: people.detail
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [people]
+      summary: Update a person.
+      operationId: people.update
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, alias]
+              properties:
+                csrf_token: {type: string}
+                alias: {type: string, maxLength: 200}
+                tags: {type: string, maxLength: 1000}
+                avatar_blob: {type: string, maxLength: 12582912}
+                clear_avatar: {type: string, enum: ["y", "yes", "on", "true", "1", ""]}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /people/{person_id}/edit:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    get:
+      tags: [people]
+      summary: Show the edit-person form.
+      operationId: people.edit
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /people/{person_id}/delete:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    post:
+      tags: [people]
+      summary: Delete a person and cascade their sessions / session-media.
+      operationId: people.destroy
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, confirm_alias]
+              properties:
+                csrf_token: {type: string}
+                confirm_alias:
+                  type: string
+                  description: |
+                    Must match the person's current alias exactly.
+                    Defense against accidental clicks.
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /people/{person_id}/sessions/new:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    get:
+      tags: [sessions]
+      summary: Show the new-session form for a person.
+      operationId: sessions.new
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /people/{person_id}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/PersonId'
+    post:
+      tags: [sessions]
+      summary: Create a session for a person.
+      operationId: sessions.create
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, session_date]
+              properties:
+                csrf_token: {type: string}
+                session_date:
+                  type: string
+                  pattern: "^\\d{4}-\\d{2}-\\d{2}$"
+                notes:
+                  type: string
+                  maxLength: 100000
+                rating_*:
+                  type: string
+                  description: |
+                    One field per enabled rating dimension. Field name is
+                    `rating_<dim_id>`, value is `"0".."5"`. Out-of-range
+                    values are clamped server-side.
+                link_urls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+                  description: |
+                    Repeatable. Each value paired by index with
+                    `link_thumb_keys` and saved as a SessionLink.
+                    Only http/https URLs accepted.
+                link_thumb_keys:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    Parallel to `link_urls`. Each value is a
+                    MediaFile.file_key (must resolve to a `photo`
+                    type) for the link's pasted thumbnail; empty
+                    string means no thumb. Unknown or non-photo keys
+                    silently drop to None.
+                photo_keys:
+                  type: array
+                  items:
+                    type: string
+                  description: |
+                    file_keys of pre-uploaded photo MediaFiles to link
+                    as photo media on this session.
+                audio_keys:
+                  type: array
+                  items:
+                    type: string
+                video_keys:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /sessions/{session_id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [sessions]
+      summary: Session detail page.
+      operationId: sessions.detail
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [sessions]
+      summary: Update a session.
+      operationId: sessions.update
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, session_date]
+              properties:
+                csrf_token: {type: string}
+                session_date: {type: string, pattern: "^\\d{4}-\\d{2}-\\d{2}$"}
+                notes: {type: string, maxLength: 100000}
+                rating_*: {type: string}
+                link_urls:
+                  type: array
+                  items: {type: string, format: uri}
+                link_thumb_keys:
+                  type: array
+                  items: {type: string}
+                photo_keys:
+                  type: array
+                  items: {type: string}
+                audio_keys:
+                  type: array
+                  items: {type: string}
+                video_keys:
+                  type: array
+                  items: {type: string}
+                unlinked_keys:
+                  type: array
+                  items: {type: string}
+                  description: |
+                    file_keys to UNLINK from this session (the SessionMedia
+                    join is removed but the MediaFile stays — may become
+                    a Library orphan).
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /sessions/{session_id}/edit:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [sessions]
+      summary: Show the edit-session form.
+      operationId: sessions.edit
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions/{session_id}/delete:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [sessions]
+      summary: Delete a session (cascades links + media joins).
+      operationId: sessions.destroy
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /session_links/{link_id}/delete:
+    parameters:
+      - $ref: '#/components/parameters/SessionLinkId'
+    post:
+      tags: [sessions]
+      summary: Delete a single SessionLink (used by the edit page).
+      operationId: sessions.link_destroy
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions/{session_id}/media/{session_media_id}/unlink:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+      - $ref: '#/components/parameters/SessionMediaId'
+    post:
+      tags: [library]
+      summary: Unlink a media file from a session (soft delete).
+      operationId: library.unlink_from_session_route
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /media/{file_key}:
+    parameters:
+      - $ref: '#/components/parameters/FileKey'
+    get:
+      tags: [media]
+      summary: Stream the decrypted bytes of an encrypted media file.
+      operationId: media.serve
+      parameters:
+        - name: Range
+          in: header
+          schema:
+            type: string
+          description: |
+            Standard HTTP Range header. `bytes=N-M` returns 206 with the
+            requested byte range; `bytes=-N` returns the last N bytes;
+            `bytes=N-` returns N to end. Used by PhotoSwipe and the
+            audio/video players. Decrypts only the chunks intersecting
+            the requested range.
+      responses:
+        '200':
+          description: Full file body.
+          content:
+            'application/octet-stream':
+              schema: {type: string, format: binary}
+            'image/*':
+              schema: {type: string, format: binary}
+            'audio/*':
+              schema: {type: string, format: binary}
+            'video/*':
+              schema: {type: string, format: binary}
+        '206':
+          description: |
+            Partial content for a Range request. Includes
+            `Content-Range: bytes start-end/size`.
+          headers:
+            Content-Range:
+              schema: {type: string}
+          content:
+            'application/octet-stream':
+              schema: {type: string, format: binary}
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '416':
+          $ref: '#/components/responses/RangeNotSatisfiable'
+
+  /sessions/upload:
+    post:
+      tags: [upload]
+      summary: AJAX-uploaded media file (photo/audio/video) → file_key.
+      operationId: upload.upload
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [kind, file]
+              properties:
+                kind:
+                  type: string
+                  enum: [photo, audio, video]
+                file:
+                  type: string
+                  format: binary
+              # CSRF token is read from the X-CSRFToken header, not
+              # from the multipart body. The Flask-WTF default
+              # accepts either, and the in-app JS uses the header.
+      responses:
+        '200':
+          description: Upload succeeded; returns the new MediaFile metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          description: |
+            HEIC upload received but `pillow-heif`/`libheif` is
+            unavailable on the server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
+        '422':
+          description: |
+            Validation error — unknown `kind`, no file uploaded,
+            magic-byte mismatch with declared MIME, audio/video
+            container signature failed, kind/media_type mismatch
+            after upload, or HEIC decoded-pixel count over the
+            50MP cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadError'
+
+  /sessions/upload/{file_key}:
+    parameters:
+      - $ref: '#/components/parameters/FileKey'
+    delete:
+      tags: [upload]
+      summary: Best-effort orphan-delete a just-uploaded media file.
+      operationId: upload.upload_delete
+      description: |
+        Called by the session form's "remove from list" button BEFORE
+        the form is saved — the file is uploaded eagerly to the
+        encrypted media pipeline; if the user removes the row before
+        save, this endpoint cleans up the orphan. Refuses (no-ops)
+        if the file is already referenced.
+      responses:
+        '204':
+          description: |
+            Best-effort delete acknowledged. The route always returns
+            204 regardless of whether the file was actually deleted
+            (it may already be referenced by a session save that
+            happened in between).
+
+  /library:
+    get:
+      tags: [library]
+      summary: List media files with filters (type + orphans-only).
+      operationId: library.index
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [photo, audio, video]
+          description: Filter by media type.
+        - name: orphans
+          in: query
+          schema:
+            type: string
+            enum: ["0", "1"]
+          description: |
+            "1" shows only orphan files (no SessionMedia / avatar /
+            link-thumbnail references). Default is unset (show all).
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+
+  /library/{media_file_id}/hard_delete:
+    parameters:
+      - $ref: '#/components/parameters/MediaFileId'
+    post:
+      tags: [library]
+      summary: Hard-delete a MediaFile (DB row + on-disk encrypted file).
+      operationId: library.hard_delete_route
+      description: |
+        The ONLY route that removes a file from disk. Refuses with a
+        flash error and 303 if any session_media join, person.avatar_media_id,
+        or session_link.thumbnail_media_id still references the file —
+        the user must unlink references first. DB delete happens first;
+        the disk unlink is deferred to an `after_commit` SQLAlchemy
+        listener so a partial failure never leaves a dangling row.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /settings:
+    get:
+      tags: [settings]
+      summary: Settings UI (5 tabs + change-password).
+      operationId: settings.index
+      parameters:
+        - name: tab
+          in: query
+          schema:
+            type: string
+            enum: [app, ratings, ui_strings, limits, raw, change_password]
+          description: |
+            Which tab to render selected. The tabs share one URL and
+            differ only in which form is active.
+      responses:
+        '200':
+          $ref: '#/components/responses/HtmlPage'
+
+  /settings/app:
+    post:
+      tags: [settings]
+      summary: Save the "App" tab (name + entity/session labels).
+      operationId: settings.save_app
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+                app_name: {type: string}
+                entity_singular: {type: string}
+                entity_plural: {type: string}
+                session_singular: {type: string}
+                session_plural: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /settings/ratings:
+    post:
+      tags: [settings]
+      summary: Save the "Ratings" tab.
+      operationId: settings.save_ratings
+      description: |
+        Adds, edits, deletes, reorders, and re-weights rating dimensions.
+        Hidden `rating_original_id` carries the row's previous id so
+        renames are detectable; renaming a dimension whose id is still
+        referenced by any session's `ratings_json` returns 422. Enabled
+        weights must sum to exactly 1.0.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+                rating_id:
+                  type: array
+                  items: {type: string}
+                rating_original_id:
+                  type: array
+                  items: {type: string}
+                rating_label:
+                  type: array
+                  items: {type: string}
+                rating_description:
+                  type: array
+                  items: {type: string}
+                rating_weight:
+                  type: array
+                  items: {type: string}
+                rating_enabled:
+                  type: array
+                  items: {type: string}
+                rating_sortable:
+                  type: array
+                  items: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /settings/ui_strings:
+    post:
+      tags: [settings]
+      summary: Save the "UI strings" tab (custom labels for built-in keys).
+      operationId: settings.save_ui_strings
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              description: |
+                Each UI-string key maps to one form field of the same
+                name. Empty values fall back to BUILTIN_UI_DEFAULTS.
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /settings/limits:
+    post:
+      tags: [settings]
+      summary: Save the "Limits" tab (size caps, max counts).
+      operationId: settings.save_limits
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+                max_custom_rating_dimensions: {type: integer, minimum: 0}
+                max_audio_files_per_session: {type: integer, minimum: 0}
+                max_video_files_per_session: {type: integer, minimum: 0}
+                max_photo_files_per_session: {type: integer, minimum: 0}
+                max_upload_mb_per_file: {type: integer, minimum: 1}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /settings/raw:
+    post:
+      tags: [settings]
+      summary: Save the "Raw JSON" tab (replace entire config.json).
+      operationId: settings.save_raw
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, raw_json]
+              properties:
+                csrf_token: {type: string}
+                raw_json:
+                  type: string
+                  description: |
+                    Full config.json content as JSON text. Parsed +
+                    validated against the same schema as the other
+                    tabs; rejected as 422 on failure.
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /settings/reload:
+    post:
+      tags: [settings]
+      summary: Re-read config.json from disk and swap it in live.
+      operationId: settings.reload
+      description: |
+        Loads `config.json` fresh, validates, and replaces
+        `current_app.config["FLEXLOG"]` in place. UI strings, rating
+        dimensions, limits all take effect on the next request.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token]
+              properties:
+                csrf_token: {type: string}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+
+  /settings/change-password:
+    post:
+      tags: [settings]
+      summary: Change the admin password (re-wrap master key under new KEK).
+      operationId: settings.change_password
+      description: |
+        Constant-time: derives a NEW KEK from the new password via
+        Argon2id, re-wraps the SAME master key (so existing
+        SQLCipher data + encrypted media remain readable), atomically
+        rewrites `kdf_params.json`. The session is NOT invalidated.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [csrf_token, current_password, new_password, new_password_confirm]
+              properties:
+                csrf_token: {type: string}
+                current_password: {type: string}
+                new_password: {type: string, minLength: 8}
+                new_password_confirm: {type: string, minLength: 8}
+      responses:
+        '303':
+          $ref: '#/components/responses/RedirectAfterAction'
+        '403':
+          description: |
+            403 — no master key in `app.config` (unauthed / engine
+            detached). Should be unreachable via the auth gate.

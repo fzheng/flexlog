@@ -266,8 +266,18 @@ make test-cov   # same, plus term-missing coverage report
 make smoke      # boot + dashboard fetch against a temp dir, then teardown
 make lock       # regenerate requirements.lock (run after dep bumps)
 make audit      # pip-audit --strict against the lock (release gate)
+make openapi    # validate docs/openapi.yaml + run drift tests
 make help       # all targets
 ```
+
+`docs/openapi.yaml` is the canonical HTTP API spec — every Flask route
+documented with parameters, request bodies, response codes, and auth
+requirements. The spec is drift-tested: adding a route requires adding
+it to the spec in the same commit; the test suite fails on any mismatch
+between the spec and `app.url_map`. Useful for understanding the API
+surface, planning deprecations (mark `deprecated: true` + add
+`x-removal-version`), or generating client code via standard OpenAPI
+tooling.
 
 `make install` enforces dep integrity end-to-end:
 

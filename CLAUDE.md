@@ -14,6 +14,7 @@ make test-cov         # same + term-missing report
 make smoke            # boot against /tmp dir, hit /, assert files were created
 make lock             # regenerate requirements.lock from pyproject.toml (maintainer)
 make audit            # pip-audit --strict against requirements.lock (maintainer)
+make openapi          # validate docs/openapi.yaml + run drift tests
 make clean            # nuke .venv + caches
 ```
 
@@ -316,6 +317,41 @@ make audit       # confirm no CVEs in the new resolved set
 # 2. Commit pyproject.toml + requirements.lock together
 ```
 
+### HTTP API spec (OpenAPI 3.0)
+
+`docs/openapi.yaml` is the source of truth for every Flask route flexlog
+exposes — 34 operations across 11 blueprints, with parameters, request
+bodies, response codes, and auth requirements documented per operation.
+
+The spec is enforced by `tests/integration/test_openapi.py`, which:
+
+- Validates the spec against the OpenAPI 3.0 schema (catches malformed
+  YAML / missing required fields).
+- Walks `app.url_map` and fails on any route NOT in the spec (catches
+  "added a route, forgot to doc it").
+- Walks the spec and fails on any path NOT in `url_map` (catches
+  "removed a route, forgot to remove the doc").
+- Compares HTTP methods, `operationId` ↔ Flask endpoint names, and
+  the `security: []` annotation against `ALLOWED_UNAUTH_ENDPOINTS`.
+- Surfaces any operation marked `deprecated: true` and requires it to
+  carry `x-removal-version: "X.Y.Z"` for changelog tracking.
+
+When you add or change a route:
+1. Update the route handler.
+2. Update `docs/openapi.yaml` with the new path / method / responses.
+3. Run `make openapi` to validate + drift-check.
+4. Commit the route change + spec change together.
+
+When you deprecate a route:
+1. Add `deprecated: true` and `x-removal-version: "X.Y.Z"` on the
+   operation in `docs/openapi.yaml`.
+2. The README's next changelog section lists the planned removal.
+3. When `X.Y.Z` ships, remove the route + the spec entry in one commit.
+
+Drift tests run as part of the normal `make test` suite; `make openapi`
+is a quick-feedback target that validates spec + runs only the drift
+tests, useful while iterating on route changes.
+
 ## Conventions
 
 - **`paths.py` owns all disk paths.** Don't `Path(os.environ[...])` elsewhere. Don't `os.path.join` filesystem roots.
@@ -329,6 +365,7 @@ make audit       # confirm no CVEs in the new resolved set
 - **Avoid mocks in DB tests.** From saved memory (`feedback_testing` style): integration tests hit a real SQLCipher DB via the conftest fixtures. Don't mock SQLAlchemy.
 - **Dep bumps need a lock regen.** Edit `pyproject.toml` → `make lock` → `make audit` → commit both together. The Makefile install enforces hashes, so a stale lock breaks `make install`.
 - **Vendored asset updates need a manifest regen.** Drop the new file under `flexlog/static/vendor/` → `python scripts/regen_vendor_integrity.py` → commit the file + `INTEGRITY.txt` + `flexlog/web/vendor_integrity.py` together. `make install` verifies the manifest.
+- **Route changes need an `docs/openapi.yaml` change in the same commit.** The drift tests will fail otherwise. `make openapi` runs the validator + drift checks for quick feedback. Deprecating a route means `deprecated: true` + `x-removal-version: "X.Y.Z"`.
 
 ## Useful pointers
 
