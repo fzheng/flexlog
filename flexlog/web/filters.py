@@ -239,6 +239,10 @@ def vendor_sri(static_path: str) -> str:
     scripts/regen_vendor_integrity.py — surface as a missing
     integrity attribute, fail soft).
     """
+    # Lazy import: vendor_integrity is auto-generated. Importing it
+    # at module level would couple filter-module load to the existence
+    # of a regenerated file. Keep the dependency local so the filter
+    # can be registered even if the regen script hasn't run.
     from flexlog.web.vendor_integrity import SRI_HASHES
     sri = SRI_HASHES.get(static_path)
     if not sri:

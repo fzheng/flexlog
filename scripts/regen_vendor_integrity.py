@@ -23,10 +23,13 @@ PY_MODULE = ROOT / "flexlog" / "web" / "vendor_integrity.py"
 
 def vendor_files() -> list[Path]:
     """Every regular file under flexlog/static/vendor/, excluding
-    INTEGRITY.txt itself. Returns paths sorted for deterministic output."""
+    INTEGRITY.txt and any dotfile (.DS_Store, .gitkeep, etc.).
+    Returns paths sorted for deterministic output."""
     files = [
         p for p in VENDOR_DIR.rglob("*")
-        if p.is_file() and p.name != "INTEGRITY.txt"
+        if p.is_file()
+        and p.name != "INTEGRITY.txt"
+        and not p.name.startswith(".")
     ]
     return sorted(files, key=lambda p: p.relative_to(VENDOR_DIR).as_posix())
 
@@ -58,7 +61,7 @@ def main() -> int:
     for p in files:
         rel = p.relative_to(VENDOR_DIR).as_posix()
         integrity_lines.append(f"{sha256_hex(p)}  {rel}\n")
-    INTEGRITY_TXT.write_text("".join(integrity_lines))
+    INTEGRITY_TXT.write_text("".join(integrity_lines), encoding="utf-8")
     print(f"wrote {INTEGRITY_TXT} ({len(files)} files)")
 
     # 2. Write vendor_integrity.py (sha384 base64, for SRI in templates).
@@ -78,7 +81,7 @@ def main() -> int:
         f'{"".join(sri_entries)}'
         '}\n'
     )
-    PY_MODULE.write_text(py_body)
+    PY_MODULE.write_text(py_body, encoding="utf-8")
     print(f"wrote {PY_MODULE}")
     return 0
 
