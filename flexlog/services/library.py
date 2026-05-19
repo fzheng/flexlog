@@ -18,7 +18,6 @@ from dataclasses import dataclass
 
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import Session as SASession
 
 from flexlog import paths
 from flexlog.db.models import MediaFile, Person, SessionLink, SessionMedia
@@ -35,7 +34,7 @@ logger = logging.getLogger("flexlog.library")
 # fragile: a later unrelated db.commit() in the same request would fire all
 # stale listeners and unlink files the second commit didn't intend to remove.
 # A single class-level listener + per-session info dict collapses cleanly.
-@event.listens_for(SASession, "after_commit")
+@event.listens_for(Session, "after_commit")
 def _drain_pending_unlinks(session):
     pending = session.info.pop("pending_unlinks", None)
     if not pending:
@@ -139,9 +138,11 @@ def hard_delete(db: Session, media_file_id: str) -> None:
     moment the user POSTs the delete — re-check here, inside the same
     transaction, before destroying data.
 
-    Caller is responsible for `db.commit()` after the call. The disk unlink
-    happens AFTER the commit in the same call (so a partial failure never
-    leaves a dangling DB row).
+    Caller is responsible for `db.commit()` after the call. The disk
+    unlink happens in the module-level `_drain_pending_unlinks` listener
+    that fires on every after_commit — so a partial failure between
+    db.flush() and db.commit() never leaves a dangling DB row pointing
+    at a deleted file.
     """
     mf = db.get(MediaFile, media_file_id)
     if mf is None:
