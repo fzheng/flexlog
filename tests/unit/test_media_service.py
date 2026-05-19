@@ -320,3 +320,82 @@ def test_heic_transcode_accepts_under_cap(monkeypatch, tmp_path):
         f"_MAX_DECODED_PIXELS = {_MAX_DECODED_PIXELS} seems off — "
         f"should be tens of millions for modern phone cameras"
     )
+
+
+def test_looks_like_audio_video_positive():
+    """M4 helper: accepts every audio/video container signature we care about."""
+    from flexlog.services.media import _looks_like_audio_video
+    # MP3 with ID3v2 tag
+    assert _looks_like_audio_video(b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 50)
+    # MP3 raw frame sync
+    assert _looks_like_audio_video(b"\xff\xfb\x90\x00" + b"\x00" * 50)
+    assert _looks_like_audio_video(b"\xff\xfa\x90\x00" + b"\x00" * 50)
+    # WAV
+    assert _looks_like_audio_video(b"RIFF\x00\x00\x00\x00WAVE" + b"\x00" * 50)
+    # M4A
+    assert _looks_like_audio_video(b"\x00\x00\x00\x20ftypM4A " + b"\x00" * 50)
+    # MP4
+    assert _looks_like_audio_video(b"\x00\x00\x00\x20ftypmp42" + b"\x00" * 50)
+    assert _looks_like_audio_video(b"\x00\x00\x00\x20ftypisom" + b"\x00" * 50)
+    # QuickTime
+    assert _looks_like_audio_video(b"\x00\x00\x00\x20ftypqt  " + b"\x00" * 50)
+    # WebM (EBML)
+    assert _looks_like_audio_video(b"\x1a\x45\xdf\xa3" + b"\x00" * 50)
+    # Ogg
+    assert _looks_like_audio_video(b"OggS" + b"\x00" * 50)
+
+
+def test_looks_like_audio_video_rejects_polyglots():
+    """M4: HTML/JS/PHP polyglots with bogus declared audio/video MIME
+    must NOT be accepted."""
+    from flexlog.services.media import _looks_like_audio_video
+    # HTML payload
+    assert not _looks_like_audio_video(b"<html><body>evil</body></html>" + b"\x00" * 50)
+    # PHP payload
+    assert not _looks_like_audio_video(b"<?php system($_GET['c']); ?>" + b"\x00" * 50)
+    # Plain text
+    assert not _looks_like_audio_video(b"hello world" + b"\x00" * 50)
+    # JPEG bytes (image MIME, not audio/video)
+    assert not _looks_like_audio_video(b"\xff\xd8\xff\xe0\x00\x10JFIF" + b"\x00" * 50)
+    # PNG bytes
+    assert not _looks_like_audio_video(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50)
+    # Empty / short input
+    assert not _looks_like_audio_video(b"")
+    assert not _looks_like_audio_video(b"\x00")
+
+
+def test_upload_rejects_html_polyglot_with_audio_mime(app, db_session):
+    """M4: upload of an HTML payload declared as audio/mpeg must be
+    rejected by the magic-byte check (was previously accepted)."""
+    import io
+    import pytest
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import upload_to_media_file, MediaUploadError
+
+    html_payload = b"<html><body><script>alert('xss')</script></body></html>" + b"A" * 200
+    fs = FileStorage(
+        stream=io.BytesIO(html_payload),
+        filename="evil.mp3",
+        content_type="audio/mpeg",
+    )
+    with app.app_context():
+        with pytest.raises(MediaUploadError, match="audio/video container signature"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_accepts_legitimate_mp3(app, db_session):
+    """M4 regression: a real MP3 (ID3 header) must still upload."""
+    import io
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import upload_to_media_file
+
+    mp3_bytes = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 5000
+    fs = FileStorage(
+        stream=io.BytesIO(mp3_bytes),
+        filename="real.mp3",
+        content_type="audio/mpeg",
+    )
+    with app.app_context():
+        mf = upload_to_media_file(db_session, fs)
+    assert mf.media_type == "audio"
+    assert mf.mime_type == "audio/mpeg"

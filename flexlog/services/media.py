@@ -101,6 +101,61 @@ def _looks_like_heic(head: bytes) -> bool:
     return head[8:12] in _HEIC_BRANDS
 
 
+# Audio/video container signatures (M4 from pentest). The check is
+# coarse — "does this look like any known A/V container?" — rather
+# than strict MIME-to-signature matching, because audio/mp4 and
+# video/mp4 share the same ftyp brand space and can't be reliably
+# distinguished from the first 64 bytes. Goal is to reject polyglot
+# files (HTML/JS shaped payload with audio/mp4 Content-Type).
+_AV_FTYP_BRANDS = frozenset({
+    # Audio MP4 / M4A
+    b"M4A ", b"M4B ", b"M4P ",
+    # Video MP4 / common variants
+    b"mp41", b"mp42", b"isom", b"iso2", b"iso4", b"iso5", b"iso6",
+    b"avc1", b"avc3", b"dash", b"f4v ", b"M4V ",
+    # Apple QuickTime
+    b"qt  ",
+})
+
+
+def _looks_like_audio_video(head: bytes) -> bool:
+    """True if `head` matches any common audio/video container signature.
+
+    Covers: MP3 (ID3 tag OR raw frame sync), WAV (RIFF...WAVE), MP4/M4A
+    family (`ftyp` + brand), QuickTime, WebM (EBML).
+    """
+    if len(head) < 4:
+        return False
+    # MP3 with ID3v2 tag
+    if head[:3] == b"ID3":
+        return True
+    # MP3 raw frame sync (no tag). MPEG audio frame header: 11 sync bits
+    # then 2 bits version + 2 bits layer. Common bytes: FF FB / FF FA /
+    # FF F3 / FF F2 / FF E3 / etc. Accept any FF E?/F? pattern.
+    if head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+        return True
+    # WAV: RIFF<size>WAVE
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return True
+    # AVI: RIFF<size>AVI<space>
+    if len(head) >= 12 and head[:4] == b"RIFF" and head[8:12] == b"AVI ":
+        return True
+    # ISO BMFF (MP4 / M4A / QuickTime): `ftyp` box at bytes 4..8, known
+    # brand at 8..12. HEIC brands are already accepted (they're images
+    # in our pipeline, but the helper is shared-safe).
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand in _AV_FTYP_BRANDS or brand in _HEIC_BRANDS:
+            return True
+    # WebM / Matroska: EBML magic at bytes 0..4
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return True
+    # Ogg (used for some webm/audio variants; nice to accept)
+    if head[:4] == b"OggS":
+        return True
+    return False
+
+
 _MAX_DECODED_PIXELS = 50_000_000  # ~50 MP cap. iPhone HEIC tops out
                                    # at ~48 MP (iPhone 14 Pro main camera);
                                    # leaves room for legitimate panoramas
@@ -243,6 +298,21 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
             if detected != declared_mime:
                 raise MediaUploadError(
                     f"declared MIME {declared_mime!r} does not match magic bytes ({detected!r})"
+                )
+
+        # Audio/video: coarse "is this a known A/V container?" check
+        # (M4 from pentest). MP4-family brands are shared between
+        # audio/mp4 and video/mp4, so we can't strictly distinguish
+        # without a full parse — but rejecting non-A/V signatures
+        # (HTML/PHP/JS polyglots) is the high-value defense.
+        if declared_mime in (
+            "audio/mpeg", "audio/wav", "audio/mp4", "audio/x-m4a",
+            "video/mp4", "video/webm", "video/quicktime",
+        ):
+            if not _looks_like_audio_video(head_bytes):
+                raise MediaUploadError(
+                    f"declared MIME {declared_mime!r} does not match any "
+                    f"known audio/video container signature"
                 )
 
         # HEIC/HEIF: confirm magic bytes, then transcode to JPEG for storage
