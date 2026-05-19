@@ -76,6 +76,13 @@ def create_app() -> Flask:
     app.config["AUTH_EPOCH"] = secrets.token_hex(16)
     app.config["WTF_CSRF_ENABLED"] = True
     app.config["MAX_CONTENT_LENGTH"] = 3 * 1024 * 1024 * 1024
+    # Session cookie hardening (M3 from pentest). Local-only by default
+    # but defensible if the user ever puts a reverse proxy in front.
+    # SECURE is left False because the dev server is HTTP; a TLS proxy
+    # deployment should override via env if it wants the Secure flag.
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_SECURE"] = False
     app.debug = os.environ.get("FLEXLOG_DEBUG", "") == "1"
 
     CSRFProtect(app)
