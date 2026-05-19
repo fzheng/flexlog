@@ -227,3 +227,102 @@ def test_encrypt_file_to_path_fsyncs_destination(tmp_path, monkeypatch):
     encrypt_file_to_path(src, dst, master_key=b"\x00" * 32, file_sha="a" * 64)
 
     assert len(fsync_calls) >= 1, "expected at least one os.fsync on the destination"
+
+
+# ---------------------------------------------------------------- header validation
+
+
+def test_build_header_rejects_zero_chunk_size():
+    """chunk_size must be positive."""
+    import pytest
+    from flexlog.crypto import build_header
+    with pytest.raises(ValueError, match="chunk_size"):
+        build_header(plaintext_size=100, chunk_size=0)
+
+
+def test_build_header_rejects_oversize_chunk_size():
+    """chunk_size encodes as uint24; values >= 2**24 must be rejected."""
+    import pytest
+    from flexlog.crypto import build_header
+    with pytest.raises(ValueError, match="chunk_size"):
+        build_header(plaintext_size=100, chunk_size=1 << 24)
+
+
+def test_build_header_rejects_negative_plaintext_size():
+    import pytest
+    from flexlog.crypto import build_header
+    with pytest.raises(ValueError, match="plaintext_size"):
+        build_header(plaintext_size=-1)
+
+
+def test_build_header_rejects_huge_plaintext_size():
+    import pytest
+    from flexlog.crypto import build_header
+    with pytest.raises(ValueError, match="plaintext_size"):
+        build_header(plaintext_size=1 << 63)
+
+
+def test_parse_header_rejects_short_input():
+    import pytest
+    from flexlog.crypto import parse_header
+    with pytest.raises(ValueError, match="too short"):
+        parse_header(b"FLE0\x01")  # only 5 bytes
+
+
+def test_parse_header_rejects_bad_magic():
+    import pytest
+    from flexlog.crypto import parse_header, FILE_HEADER_SIZE
+    bad = b"XXXX" + b"\x00" * (FILE_HEADER_SIZE - 4)
+    with pytest.raises(ValueError, match="bad magic"):
+        parse_header(bad)
+
+
+def test_parse_header_rejects_bad_version():
+    import pytest
+    from flexlog.crypto import parse_header, MAGIC, FILE_HEADER_SIZE
+    # Magic OK, version byte = 99 (unknown)
+    bad = MAGIC + bytes([99]) + b"\x00" * (FILE_HEADER_SIZE - 5)
+    with pytest.raises(ValueError, match="unsupported file version"):
+        parse_header(bad)
+
+
+# ---------------------------------------------------------------- range decrypt edge cases
+
+
+def _encrypt_to(tmp_path, plaintext: bytes, key: bytes, sha: str):
+    from flexlog.crypto import encrypt_file_to_path
+    src = tmp_path / "src.bin"
+    dst = tmp_path / "dst.enc"
+    src.write_bytes(plaintext)
+    encrypt_file_to_path(src, dst, master_key=key, file_sha=sha)
+    return dst
+
+
+def test_decrypt_file_range_rejects_end_past_size(tmp_path):
+    import pytest
+    from flexlog.crypto import decrypt_file_range
+    key = b"\x00" * 32
+    sha = "a" * 64
+    dst = _encrypt_to(tmp_path, b"hello world", key, sha)
+    with pytest.raises(ValueError, match="range end"):
+        decrypt_file_range(dst, key, sha, start=0, end=100)
+
+
+def test_decrypt_file_range_rejects_inverted_range(tmp_path):
+    import pytest
+    from flexlog.crypto import decrypt_file_range
+    key = b"\x00" * 32
+    sha = "a" * 64
+    dst = _encrypt_to(tmp_path, b"hello world", key, sha)
+    with pytest.raises(ValueError, match="invalid range"):
+        decrypt_file_range(dst, key, sha, start=5, end=2)
+
+
+def test_decrypt_file_range_rejects_negative_start(tmp_path):
+    import pytest
+    from flexlog.crypto import decrypt_file_range
+    key = b"\x00" * 32
+    sha = "a" * 64
+    dst = _encrypt_to(tmp_path, b"hello world", key, sha)
+    with pytest.raises(ValueError, match="invalid range"):
+        decrypt_file_range(dst, key, sha, start=-1, end=2)

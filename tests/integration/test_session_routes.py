@@ -210,3 +210,119 @@ def test_delete_session_cascades_links(authed_client, db_session):
         text("SELECT COUNT(*) FROM session_link WHERE session_id = :sid"),
         {"sid": s.id},
     ).scalar() == 0
+
+
+# ---------------------------------------------------------------- _build_existing_links_for_template + error rerender
+
+
+def test_create_session_400_rerenders_with_unsafe_url_dropped(
+    csrf_authed_client, csrf_person, csrf_db_session,
+):
+    """On a form-validation error (bad session_date), the page re-renders
+    with the user's submitted URLs filtered through is_safe_link_url —
+    a javascript: URL pasted in is dropped from the re-render output."""
+    import re
+    # Grab CSRF token from the new-session form first
+    new_url = f"/people/{csrf_person.id}/sessions/new"
+    body = csrf_authed_client.get(new_url).get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', body).group(1)
+
+    resp = csrf_authed_client.post(
+        f"/people/{csrf_person.id}/sessions",
+        data={
+            "csrf_token": token,
+            "session_date": "not-a-date",  # forces validation failure
+            "notes": "",
+            "link_urls": ["javascript:alert(1)", "https://example.com/ok"],
+            "link_thumb_keys": ["", ""],
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    rerender = resp.get_data(as_text=True)
+    assert "https://example.com/ok" in rerender
+    assert "javascript:alert(1)" not in rerender
+
+
+def test_update_session_with_unknown_photo_key_422(
+    csrf_authed_client, csrf_person, csrf_db_session,
+):
+    """POST /sessions/<id> with a photo_keys list referencing a
+    nonexistent MediaFile must return 422 + flash the stale-keys
+    warning. The route's link_media_to_session catches the unknown
+    list and rolls back."""
+    import re
+    from flexlog.services.sessions import create_session
+
+    s = create_session(
+        csrf_db_session, person_id=csrf_person.id, session_date="2026-05-18",
+        ratings={"energy": 4}, notes=None,
+        link_urls=[], link_thumb_keys=[],
+    )
+    csrf_db_session.commit()
+    sid = s.id
+
+    edit_body = csrf_authed_client.get(f"/sessions/{sid}/edit").get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', edit_body).group(1)
+
+    resp = csrf_authed_client.post(
+        f"/sessions/{sid}",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-05-18",
+            "notes": "",
+            "rating_energy": "4",
+            "photo_keys": ["nonexistent-key-abc123"],
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 422
+    body = resp.get_data(as_text=True)
+    assert "stale key" in body.lower() or "no longer available" in body.lower()
+
+
+def test_update_session_400_with_unsafe_url_drops_in_rerender(
+    csrf_authed_client, csrf_person, csrf_db_session,
+):
+    """Same as the create-side test but for the update form path."""
+    import re
+    from flexlog.services.sessions import create_session
+
+    s = create_session(
+        csrf_db_session, person_id=csrf_person.id, session_date="2026-05-18",
+        ratings={"energy": 4}, notes=None,
+        link_urls=[], link_thumb_keys=[],
+    )
+    csrf_db_session.commit()
+
+    edit_body = csrf_authed_client.get(f"/sessions/{s.id}/edit").get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', edit_body).group(1)
+
+    resp = csrf_authed_client.post(
+        f"/sessions/{s.id}",
+        data={
+            "csrf_token": token,
+            "session_date": "not-a-date",  # validation failure
+            "notes": "",
+            "rating_energy": "4",
+            "link_urls": ["data:text/html,<x>", "https://example.com/ok"],
+            "link_thumb_keys": ["", ""],
+        },
+    )
+    assert resp.status_code == 400
+    body = resp.get_data(as_text=True)
+    assert "https://example.com/ok" in body
+    assert "data:text/html" not in body
+
+
+def test_link_destroy_404_for_unknown_link(csrf_authed_client):
+    """POST /session_links/<unknown_id>/delete returns 404."""
+    import re
+    # Grab a CSRF token from any GET page
+    body = csrf_authed_client.get("/dashboard").get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', body).group(1)
+    resp = csrf_authed_client.post(
+        "/session_links/nonexistent-link-xyz/delete",
+        data={"csrf_token": token},
+    )
+    assert resp.status_code == 404

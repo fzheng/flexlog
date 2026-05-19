@@ -399,3 +399,160 @@ def test_upload_accepts_legitimate_mp3(app, db_session):
         mf = upload_to_media_file(db_session, fs)
     assert mf.media_type == "audio"
     assert mf.mime_type == "audio/mpeg"
+
+
+# ---------------------------------------------------------------- gaps
+
+
+def test_upload_rejects_declared_heic_without_magic_bytes(app, db_session):
+    """If declared MIME is image/heic but the bytes don't have an HEIC
+    ftyp signature, reject. Same defense as image/jpeg/png/webp."""
+    import io
+    import pytest
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import MediaUploadError, upload_to_media_file
+
+    fs = FileStorage(
+        stream=io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 500),  # JPEG bytes
+        filename="lying.heic",
+        content_type="image/heic",
+    )
+    with app.app_context():
+        with pytest.raises(MediaUploadError, match="does not match magic bytes"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_rejects_empty_file(app, db_session):
+    """A zero-byte upload is rejected — not even our 'minimal valid
+    file' bytes can fit there."""
+    import io
+    import pytest
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import MediaUploadError, upload_to_media_file
+
+    fs = FileStorage(
+        stream=io.BytesIO(b""),
+        filename="empty.jpg",
+        content_type="image/jpeg",
+    )
+    with app.app_context():
+        with pytest.raises(MediaUploadError, match="empty"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_upload_raises_when_master_key_missing(app, db_session, monkeypatch):
+    """If app.config['MASTER_KEY'] is None at upload time, we fail
+    loudly before encrypt — would otherwise crash deep inside crypto
+    with a confusing error."""
+    import io
+    import pytest
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import MediaUploadError, upload_to_media_file
+
+    jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 500
+    fs = FileStorage(
+        stream=io.BytesIO(jpeg),
+        filename="x.jpg",
+        content_type="image/jpeg",
+    )
+    with app.app_context():
+        # Drop the master key from app.config to simulate the post-
+        # logout / pre-login state where the engine is somehow still
+        # attached but the key is gone.
+        app.config.pop("MASTER_KEY", None)
+        with pytest.raises(MediaUploadError, match="master key not loaded"):
+            upload_to_media_file(db_session, fs)
+
+
+def test_orphan_delete_returns_false_for_unknown_key(app, db_session):
+    """orphan_delete_media_file on a non-existent file_key returns False
+    without raising."""
+    from flexlog.services.media import orphan_delete_media_file
+    with app.app_context():
+        assert orphan_delete_media_file(db_session, "no-such-key") is False
+
+
+def test_orphan_delete_refuses_when_referenced_by_session(app, db_session, person):
+    """An audio file linked to a session must not be orphan-deleted by
+    the upload-DELETE handler (different code path from library hard-
+    delete, which has stronger checks)."""
+    import io
+    from werkzeug.datastructures import FileStorage
+    from flexlog.services.media import (
+        link_to_session, orphan_delete_media_file, upload_to_media_file,
+    )
+    from flexlog.services.sessions import create_session
+
+    mp3 = b"ID3\x03\x00\x00\x00\x00\x00\x00" + b"\x00" * 500
+    fs = FileStorage(stream=io.BytesIO(mp3), filename="a.mp3", content_type="audio/mpeg")
+    with app.app_context():
+        mf = upload_to_media_file(db_session, fs)
+        s = create_session(
+            db_session, person_id=person.id, session_date="2026-05-18",
+            ratings={}, notes=None, link_urls=[], link_thumb_keys=[],
+        )
+        db_session.commit()
+        link_to_session(db_session, s.id, mf.id, sort_order=0)
+        db_session.commit()
+
+        # Now try to orphan-delete — must refuse.
+        result = orphan_delete_media_file(db_session, mf.file_key)
+        assert result is False
+
+
+def test_heic_transcode_converts_rgba_to_rgb(monkeypatch, tmp_path):
+    """An HEIC decoded to RGBA gets converted to RGB before JPEG save
+    (JPEG doesn't support alpha). Covers the convert branch."""
+    from unittest.mock import MagicMock
+    import io
+    from flexlog.services.media import _transcode_heic_to_jpeg
+
+    fake_img = MagicMock()
+    fake_img.size = (100, 100)
+    fake_img.mode = "RGBA"
+    fake_img.info = {}
+
+    # save() writes a valid JPEG to disk so the post-save hash + head
+    # read works.
+    real_jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 500
+    def fake_save(path, **kwargs):
+        from pathlib import Path
+        Path(path).write_bytes(real_jpeg)
+    fake_img.save = fake_save
+    fake_img.close = lambda: None
+    fake_img.convert = MagicMock(return_value=fake_img)
+
+    monkeypatch.setattr("PIL.Image.open", lambda _path: fake_img)
+
+    src = tmp_path / "x.heic"
+    src.write_bytes(b"\x00" * 50)
+    sha, size, head = _transcode_heic_to_jpeg(src)
+    fake_img.convert.assert_called_once_with("RGB")
+    assert sha and size > 0 and head.startswith(b"\xff\xd8\xff\xe0")
+
+
+def test_heic_transcode_preserves_exif(monkeypatch, tmp_path):
+    """If the source HEIC has EXIF data, it's preserved in the saved JPEG."""
+    from unittest.mock import MagicMock
+    from flexlog.services.media import _transcode_heic_to_jpeg
+
+    fake_img = MagicMock()
+    fake_img.size = (100, 100)
+    fake_img.mode = "RGB"
+    fake_img.info = {"exif": b"FAKE_EXIF_BYTES"}
+
+    save_calls = []
+    def fake_save(path, **kwargs):
+        save_calls.append(kwargs)
+        from pathlib import Path
+        Path(path).write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 500)
+    fake_img.save = fake_save
+    fake_img.close = lambda: None
+    fake_img.convert = MagicMock()
+
+    monkeypatch.setattr("PIL.Image.open", lambda _path: fake_img)
+
+    src = tmp_path / "x.heic"
+    src.write_bytes(b"\x00" * 50)
+    _transcode_heic_to_jpeg(src)
+    assert save_calls[0].get("exif") == b"FAKE_EXIF_BYTES"

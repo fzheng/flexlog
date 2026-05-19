@@ -80,3 +80,33 @@ def test_after_setup_password_login_works(tmp_data_dir_no_encryption):
     assert resp.status_code == 303
     # Redirected back to / which serves the dashboard inline for authed users
     assert resp.headers["Location"].endswith("/")
+
+
+# ---------------------------------------------------------------- redirects when state != needs_setup
+
+
+def test_set_password_form_redirects_when_already_setup(authed_client):
+    """GET /setup/set-password on an already-set-up data dir (state ==
+    "ready", not "needs_setup") redirects to landing."""
+    resp = authed_client.get("/setup/set-password", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+
+
+def test_set_password_post_rejected_when_already_setup(authed_client):
+    """POST /setup/set-password on an already-set-up data dir is rejected."""
+    resp = authed_client.post(
+        "/setup/set-password",
+        data={"password": "newpass1234", "password_confirm": "newpass1234"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")
+
+
+def test_recover_redirects_when_not_in_recovery_state(authed_client):
+    """GET /setup/recover when state is 'ready' (not needs_recovery)
+    redirects to landing."""
+    resp = authed_client.get("/setup/recover", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/")

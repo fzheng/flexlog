@@ -129,3 +129,67 @@ def test_write_kdf_params_tmp_file_uses_O_EXCL(tmp_path, monkeypatch):
         f"no os.open(..., O_CREAT|O_EXCL, ...) call observed. "
         f"flags seen: {[oct(f) for f in captured_flags]}"
     )
+
+
+# ---------------------------------------------------------------- corruption paths
+
+
+def test_load_kdf_params_rejects_non_json(tmp_path):
+    import pytest
+    from flexlog.kdf_params import CorruptKdfParamsError, load_kdf_params
+    p = tmp_path / "kdf_params.json"
+    p.write_text("this is not json at all { } ][")
+    with pytest.raises(CorruptKdfParamsError, match="not valid JSON"):
+        load_kdf_params(p)
+
+
+def test_load_kdf_params_rejects_non_object(tmp_path):
+    import pytest
+    from flexlog.kdf_params import CorruptKdfParamsError, load_kdf_params
+    p = tmp_path / "kdf_params.json"
+    p.write_text('["just", "an", "array"]')
+    with pytest.raises(CorruptKdfParamsError, match="must be a JSON object"):
+        load_kdf_params(p)
+
+
+def test_load_kdf_params_rejects_missing_key(tmp_path):
+    import json
+    import pytest
+    from flexlog.kdf_params import CorruptKdfParamsError, load_kdf_params
+    p = tmp_path / "kdf_params.json"
+    # Missing "argon2" and most fields
+    p.write_text(json.dumps({"version": 1}))
+    with pytest.raises(CorruptKdfParamsError, match="missing key"):
+        load_kdf_params(p)
+
+
+def test_load_kdf_params_rejects_invalid_hex(tmp_path):
+    import json
+    import pytest
+    from flexlog.kdf_params import CorruptKdfParamsError, load_kdf_params
+    p = tmp_path / "kdf_params.json"
+    p.write_text(json.dumps({
+        "version": 1,
+        "kek_salt": "zzzz-not-hex",  # invalid
+        "kek_nonce": "00" * 12,
+        "wrapped_master_key": "00" * 48,
+        "argon2": {"time": 4, "mem_kib": 65536, "parallelism": 2},
+    }))
+    with pytest.raises(CorruptKdfParamsError, match="invalid field shape"):
+        load_kdf_params(p)
+
+
+def test_load_kdf_params_rejects_missing_argon2_subkey(tmp_path):
+    import json
+    import pytest
+    from flexlog.kdf_params import CorruptKdfParamsError, load_kdf_params
+    p = tmp_path / "kdf_params.json"
+    p.write_text(json.dumps({
+        "version": 1,
+        "kek_salt": "00" * 16,
+        "kek_nonce": "00" * 12,
+        "wrapped_master_key": "00" * 48,
+        "argon2": {"time": 4},  # missing mem_kib + parallelism
+    }))
+    with pytest.raises(CorruptKdfParamsError, match="invalid field shape"):
+        load_kdf_params(p)

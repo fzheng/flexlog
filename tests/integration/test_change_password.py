@@ -97,3 +97,44 @@ def test_existing_data_still_readable_after_change_password(
     db_session.expire_all()
     aliases = [p.alias for p in db_session.query(Person).all()]
     assert "Persisted" in aliases
+
+
+# ---------------------------------------------------------------- error branches
+
+
+def test_change_password_too_short(authed_client, admin_password):
+    """New password under 8 chars → flash error, no change."""
+    resp = authed_client.post("/settings/change-password", data={
+        "current_password": admin_password,
+        "new_password": "short",
+        "new_password_confirm": "short",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "at least 8 characters" in body or "at least 8" in body
+
+
+def test_change_password_empty_new(authed_client, admin_password):
+    """Empty new_password → flash error."""
+    resp = authed_client.post("/settings/change-password", data={
+        "current_password": admin_password,
+        "new_password": "",
+        "new_password_confirm": "",
+    }, follow_redirects=True)
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "at least 8" in body
+
+
+def test_change_password_unauthed_403(client):
+    """No master key in app.config (unauthed) → 403."""
+    resp = client.post("/settings/change-password", data={
+        "current_password": "anything",
+        "new_password": "newpass1234",
+        "new_password_confirm": "newpass1234",
+    })
+    # Unauthed routes redirect to / via the auth gate (303)
+    # before the change_password handler runs. Either 303 (redirected
+    # by gate) or 403 (passed gate but no master key) is acceptable —
+    # both prove the route refuses unauthed change-password.
+    assert resp.status_code in (303, 403)

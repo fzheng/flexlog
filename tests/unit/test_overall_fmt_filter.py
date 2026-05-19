@@ -43,3 +43,19 @@ def test_star_fill_clamps_out_of_range():
 def test_star_fill_non_int_returns_all_empty():
     assert star_fill(None) == "☆☆☆☆☆"
     assert star_fill("not a number") == "☆☆☆☆☆"
+
+
+def test_overall_fmt_handles_non_numeric():
+    """overall_fmt on a non-numeric value returns '' (defensive against
+    accidentally passing a string ratings_json)."""
+    from flexlog.web.filters import overall_fmt
+    assert overall_fmt("not a number") == ""
+    assert overall_fmt([1, 2, 3]) == ""
+    assert overall_fmt({"foo": "bar"}) == ""
+
+
+def test_overall_fmt_handles_none():
+    """overall_fmt on None returns '' — used for sessions with no
+    ratings."""
+    from flexlog.web.filters import overall_fmt
+    assert overall_fmt(None) == ""

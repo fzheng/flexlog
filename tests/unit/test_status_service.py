@@ -148,3 +148,37 @@ def test_session_updated_at_bumps_on_update_session(person, db_session):
         f"updated_at didn't advance: was {initial!r}, still {s.updated_at!r}. "
         "If this fires, add an explicit timestamp set in update_session."
     )
+
+
+def test_max_session_updated_at_logs_warning_on_malformed_iso(person, db_session, caplog):
+    """If a corrupted updated_at value lands in the DB (e.g. external
+    edit), compute_status logs a warning and returns None instead of
+    crashing the status bar."""
+    import logging
+    from sqlalchemy import text
+    from flexlog.services.sessions import create_session
+    from flexlog.services.status import compute_status
+
+    s = create_session(
+        db_session, person_id=person.id, session_date="2026-05-18",
+        ratings={"energy": 4}, notes=None, link_urls=[], link_thumb_keys=[],
+    )
+    db_session.commit()
+    # Poison the row with a non-ISO timestamp.
+    db_session.execute(
+        text("UPDATE session SET updated_at = :bad WHERE id = :i"),
+        {"bad": "not-an-iso-8601-string", "i": s.id},
+    )
+    db_session.commit()
+
+    import tempfile
+    from pathlib import Path
+    with caplog.at_level(logging.WARNING, logger="flexlog.status"):
+        with tempfile.TemporaryDirectory() as td:
+            snap = compute_status(db_session, Path(td))
+
+    assert snap.last_session_at is None
+    assert any(
+        "malformed" in r.message.lower() and "updated_at" in r.message.lower()
+        for r in caplog.records
+    ), f"expected warning logged; got: {[r.message for r in caplog.records]}"

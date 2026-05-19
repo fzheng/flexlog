@@ -40,3 +40,54 @@ def test_serve_unknown_file_404(authed_client):
 def test_serve_absolute_path_in_key_404(authed_client):
     resp = authed_client.get("/media/%2Fetc%2Fpasswd")
     assert resp.status_code in (400, 404)
+
+
+# ---------------------------------------------------------------- Range header edge cases
+
+
+def test_serve_range_malformed_header_416(authed_client, app, db_session):
+    mf = _upload(app, db_session)
+    resp = authed_client.get(
+        f"/media/{mf.file_key}", headers={"Range": "garbage-not-a-range"}
+    )
+    assert resp.status_code == 416
+
+
+def test_serve_range_both_empty_416(authed_client, app, db_session):
+    """`Range: bytes=-` with neither start nor end is invalid."""
+    mf = _upload(app, db_session)
+    resp = authed_client.get(
+        f"/media/{mf.file_key}", headers={"Range": "bytes=-"}
+    )
+    assert resp.status_code == 416
+
+
+def test_serve_range_start_past_end_416(authed_client, app, db_session):
+    """`Range: bytes=1000000-` where 1000000 > file size → 416 with
+    Content-Range: bytes */<size> per RFC 7233."""
+    mf = _upload(app, db_session)
+    resp = authed_client.get(
+        f"/media/{mf.file_key}", headers={"Range": "bytes=1000000-"}
+    )
+    assert resp.status_code == 416
+    assert "Content-Range" in resp.headers
+
+
+def test_serve_range_suffix_returns_last_n_bytes(authed_client, app, db_session):
+    """`Range: bytes=-N` returns the last N bytes of the plaintext."""
+    mf = _upload(app, db_session)
+    resp = authed_client.get(
+        f"/media/{mf.file_key}", headers={"Range": "bytes=-32"}
+    )
+    assert resp.status_code == 206
+    assert len(resp.get_data()) == 32
+
+
+def test_serve_range_clamps_end_past_size(authed_client, app, db_session):
+    """`Range: bytes=10-99999` where 99999 > size → end clamped to size-1."""
+    mf = _upload(app, db_session)
+    resp = authed_client.get(
+        f"/media/{mf.file_key}", headers={"Range": "bytes=10-99999"}
+    )
+    # Must return 206 with bytes from offset 10 to EOF (not 416)
+    assert resp.status_code == 206

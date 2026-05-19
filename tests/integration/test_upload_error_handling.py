@@ -78,3 +78,74 @@ def test_person_update_renders_form_on_avatar_upload_error(authed_client, db_ses
     assert "exceeds size cap" in body
     # The form data the user typed is preserved
     assert "RenamedDuringFailedAvatar" in body
+
+
+# ---------------------------------------------------------------- upload_bp.py error branches
+
+
+def test_upload_rejects_unknown_kind(authed_client):
+    """POST /sessions/upload with kind=banana → 422 with clear error."""
+    import io
+    resp = authed_client.post(
+        "/sessions/upload",
+        data={
+            "kind": "banana",
+            "file": (io.BytesIO(b"\xff\xd8\xff\xe0" + b"\x00" * 100), "x.jpg"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 422
+    assert "unknown kind" in resp.get_data(as_text=True)
+
+
+def test_upload_rejects_missing_file(authed_client):
+    """POST /sessions/upload with no file → 422."""
+    resp = authed_client.post(
+        "/sessions/upload",
+        data={"kind": "photo"},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 422
+    assert "no file" in resp.get_data(as_text=True).lower()
+
+
+def test_upload_rejects_kind_mismatch(authed_client):
+    """Upload a real JPEG declared as kind=audio → 422 with kind-mismatch
+    message. The magic-byte check would have already failed for an
+    audio MIME, so use a JPEG with kind=audio AND audio MIME: that
+    fails earlier (magic byte). The kind-mismatch path triggers when
+    upload succeeds (image MIME) but kind disagrees with media_type."""
+    import io
+    # A real JPEG with image/jpeg Content-Type but kind=audio.
+    # upload_to_media_file accepts it as a photo; route then rejects.
+    jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01" + b"\x00" * 500
+    resp = authed_client.post(
+        "/sessions/upload",
+        data={
+            "kind": "audio",
+            "file": (io.BytesIO(jpeg), "x.jpg", "image/jpeg"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 422
+    body = resp.get_data(as_text=True)
+    assert "photo" in body and "audio" in body
+
+
+def test_upload_rejects_oversize_with_413(authed_client, app):
+    """A file larger than the per-kind cap → MediaUploadError → 413."""
+    import io
+    cfg = app.config["FLEXLOG"]
+    over_cap_bytes = (cfg.limits.max_upload_mb_per_file + 1) * 1024 * 1024
+    # 4 magic bytes + padding to exceed cap
+    payload = b"\xff\xd8\xff\xe0" + b"\x00" * (over_cap_bytes - 4)
+    resp = authed_client.post(
+        "/sessions/upload",
+        data={
+            "kind": "photo",
+            "file": (io.BytesIO(payload), "x.jpg", "image/jpeg"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 413
+    assert "size cap" in resp.get_data(as_text=True).lower()
