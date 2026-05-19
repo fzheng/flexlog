@@ -23,10 +23,21 @@ _SSN_NINE_DIGITS = re.compile(r"^\d{9}$")
 
 
 def _looks_like_password(q: str) -> bool:
-    """No whitespace, 6-64 chars, contains digit/symbol/case mix."""
+    """No whitespace, ≥6 chars, contains digit/symbol/case mix.
+
+    There used to be an upper bound of 64 chars. That caused a real
+    leak: a 65+ char password-shaped value (e.g. a long passphrase, a
+    Bitcoin-seed-style string) failed the heuristic AND failed the
+    Argon2 unwrap, so it ended up appended to
+    https://www.google.com/search?q=<value> as a 303 redirect — leaking
+    the value to browser history and Google's request logs. The
+    heuristic only governs leak vs. no-leak (false positives just
+    redirect to google.com/ root, which is a UX downgrade not a
+    security problem), so erring toward over-blocking is correct.
+    """
     if not q or any(c.isspace() for c in q):
         return False
-    if not (6 <= len(q) <= 64):
+    if len(q) < 6:
         return False
     has_digit = any(c.isdigit() for c in q)
     has_symbol = any(not c.isalnum() and not c.isspace() for c in q)

@@ -46,6 +46,12 @@ def test_luhn_rejects_invalid_card_numbers(digits):
     "iphone16",           # acceptable false positive (no space, digit)
     "win10pro",           # acceptable false positive
     "Pa$$word",           # symbol + mixed case
+    # M1: long, complex inputs (Bitcoin-seed-style, long passphrases without
+    # spaces) must also count as password-shaped — they previously slipped
+    # through and got leaked to Google's search URL.
+    ("A1!" + "x" * 70),   # 73-char passphrase shape
+    ("Z" * 100 + "9"),    # 101 chars, has digit + mixed case
+    ("p@ssw0rd" * 20),    # 160-char repeated complex sequence
 ])
 def test_password_shape_positive(q):
     assert _looks_like_password(q) is True
@@ -57,11 +63,30 @@ def test_password_shape_positive(q):
     "weather",            # no digit/symbol/case mix
     "hi",                 # too short (< 6)
     "abcde",              # too short
-    "a" * 65,             # too long (> 64)
+    "a" * 1000,           # very long but no complexity — false (no digit/sym/case)
     "all lowercase letters and a space",  # whitespace
 ])
 def test_password_shape_negative(q):
     assert _looks_like_password(q) is False
+
+
+def test_long_complex_input_is_redirected_to_google_root(client, tmp_data_dir, monkeypatch):
+    """M1 regression: a 70-char password-shaped value submitted to the
+    landing page must NOT be appended to google.com/search?q=. It used
+    to be — the heuristic capped at 64 chars."""
+    import re
+    body = client.get("/").get_data(as_text=True)
+    token = re.search(r'name="csrf_token"\s+value="([^"]+)"', body).group(1)
+    long_pw = "MyVeryLongPassphrase1!" + "x" * 50  # 72 chars, password-shaped
+    resp = client.post("/", data={"csrf_token": token, "q": long_pw},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    location = resp.headers["Location"]
+    # Must redirect to google.com root (no query string), NOT to /search?q=...
+    assert long_pw not in location, (
+        f"M1: long password leaked verbatim in redirect Location: {location!r}"
+    )
+    assert location.startswith("https://www.google.com")
 
 
 # ----------------------------------------------------------- SSN
