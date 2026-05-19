@@ -6,6 +6,7 @@ flexlog.web.filters wires it into the request lifecycle.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from flexlog.db.models import Session as SessionRow
+
+logger = logging.getLogger("flexlog.status")
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,11 @@ def _max_session_updated_at(db: Session) -> datetime | None:
     try:
         return datetime.fromisoformat(raw)
     except ValueError:
+        logger.warning(
+            "malformed session.updated_at value %r (expected ISO-8601); "
+            "treating as None for status bar. DB corruption suspected.",
+            raw,
+        )
         return None
 
 
