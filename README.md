@@ -61,6 +61,23 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.8.0 — Status Bar + Data-Integrity Sweep
+
+- **Status bar at the bottom of every authed page.** Shows total
+  `$FLEXLOG_DATA_DIR/` size and the timestamp of the most recent
+  session save. Cheap: one SQL query + one filesystem walk per
+  render. Hidden when unauthed.
+- **Durability fixes (7 items).** Encrypted media writes now fsync
+  before close. Upload failures unlink their encrypted target
+  instead of leaking it as an orphan. Concurrent identical-bytes
+  uploads no longer raise IntegrityError to the user — the dedup
+  race resolves cleanly. Hard-delete's after-commit listener is
+  shared (not per-call) and logs unlink failures instead of
+  swallowing them. Tmp-uploads sweep cutoff is 24h (was 1h). The
+  vestigial `auth` table created by setup is removed.
+
+No schema change. No new dependencies.
+
 ## v0.7.0 — Link Thumbnails (paste your own screenshot)
 
 - **Each link gets a thumbnail you paste yourself.** Click a link row in the session form to focus it, then paste (⌘V / Ctrl+V) a screenshot — or drop an image onto the row. The image uploads to the existing encrypted media pipeline; on save, the link's thumbnail is set to that MediaFile.
