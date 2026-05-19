@@ -18,7 +18,7 @@
     <h3>{{ "delete_session" | ui }}</h3>
     <p>{{ "delete_session_confirm" | ui }}</p>
     {% set confirm_msg = "delete_session_confirm" | ui %}
-    <form method="post" action="{{ url_for('sessions.destroy', session_id=session.id) }}" onsubmit="return confirm('{{ confirm_msg }}');">
+    <form method="post" action="{{ url_for('sessions.destroy', session_id=session.id) }}" data-confirm="{{ confirm_msg }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-danger">{{ "delete_session" | ui }}</button>
     </form>

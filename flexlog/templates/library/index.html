@@ -12,7 +12,7 @@
       <a class="filter-tab {% if active_type == 'audio' %}active{% endif %}" href="{{ url_for('library.index', type='audio', orphans=('1' if orphans_only else None)) }}">{{ "audio_label" | ui }}</a>
       <a class="filter-tab {% if active_type == 'video' %}active{% endif %}" href="{{ url_for('library.index', type='video', orphans=('1' if orphans_only else None)) }}">{{ "videos_label" | ui }}</a>
       <label class="orphans-toggle">
-        <input type="checkbox" {% if orphans_only %}checked{% endif %} onchange="window.location='{{ url_for('library.index', type=active_type) }}' + (this.checked ? '?orphans=1' : '')">
+        <input type="checkbox" {% if orphans_only %}checked{% endif %} data-nav-on-change="{{ url_for('library.index', type=active_type) }}?orphans={value}">
         {{ "filter_orphans" | ui }}
       </label>
     </nav>

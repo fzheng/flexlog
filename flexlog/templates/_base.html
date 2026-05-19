@@ -37,5 +37,6 @@
     {% block content %}{% endblock %}
   </main>
   {% include "_partials/status_footer.html" %}
+  <script src="{{ url_for('static', filename='js/csp_handlers.js') }}"></script>
 </body>
 </html>

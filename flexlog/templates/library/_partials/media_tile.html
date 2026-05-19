@@ -17,7 +17,7 @@
       {% if row.is_orphan %}<span class="orphan-badge">orphan</span>{% endif %}
     </p>
   </div>
-  <form method="post" action="{{ url_for('library.hard_delete_route', media_file_id=row.media_file.id) }}" onsubmit="return confirm('{{ "hard_delete_warning" | ui }}');">
+  <form method="post" action="{{ url_for('library.hard_delete_route', media_file_id=row.media_file.id) }}" data-confirm="{{ "hard_delete_warning" | ui }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-danger">{{ "delete_button" | ui }}</button>
   </form>
