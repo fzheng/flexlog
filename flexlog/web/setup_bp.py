@@ -6,7 +6,6 @@ disagrees with the action being requested."""
 from __future__ import annotations
 
 import os
-import secrets
 
 from flask import (
     Blueprint, current_app, redirect, render_template, request, url_for,
@@ -78,24 +77,6 @@ def set_password():
     engine = make_engine(db_path, sqlcipher_key)
     Base.metadata.create_all(engine)
     factory = make_session_factory(engine)
-
-    # Insert the auth metadata row
-    from datetime import datetime, timezone
-    from sqlalchemy import text
-    now = datetime.now(timezone.utc).isoformat()
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS auth (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                created_at TEXT NOT NULL,
-                rotated_at TEXT NOT NULL,
-                master_key_id TEXT NOT NULL
-            )
-        """))
-        conn.execute(text("""
-            INSERT INTO auth (id, created_at, rotated_at, master_key_id)
-            VALUES (1, :now, :now, :mkid)
-        """), {"now": now, "mkid": secrets.token_hex(16)})
 
     # Attach the engine for THIS process (not strictly needed; the user
     # will log in next which will rebuild it, but cleaner this way)

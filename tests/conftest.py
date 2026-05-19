@@ -61,7 +61,7 @@ def _bootstrap_encrypted_dir(tmp_path: Path) -> bytes:
         ),
     )
 
-    # Build the encrypted DB with schema + auth row
+    # Build the encrypted DB with schema
     from flexlog.db import Base, make_engine, make_session_factory
     import flexlog.db.models as _models  # noqa: F401 — registers ORM tables with Base
     sqlcipher_key = hkdf_subkey(master_key, b"flexlog/sqlcipher/v1", 32).hex()
@@ -74,22 +74,6 @@ def _bootstrap_encrypted_dir(tmp_path: Path) -> bytes:
     # fresh v2-shaped fixture DB.
     with engine.begin() as conn:
         conn.execute(text("PRAGMA user_version = 2"))
-    import secrets
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS auth (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                created_at TEXT NOT NULL,
-                rotated_at TEXT NOT NULL,
-                master_key_id TEXT NOT NULL
-            )
-        """))
-        conn.execute(text("""
-            INSERT INTO auth (id, created_at, rotated_at, master_key_id)
-            VALUES (1, :now, :now, :mkid)
-        """), {"now": now, "mkid": secrets.token_hex(16)})
     engine.dispose()
     return master_key
 
