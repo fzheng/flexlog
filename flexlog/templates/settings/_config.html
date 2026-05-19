@@ -1,0 +1,19 @@
+<section class="settings-section">
+  <h3>{{ "config_path_label" | ui }}</h3>
+  <p class="settings-config-path">
+    <code>{{ config_path }}</code>
+  </p>
+  <p class="settings-loaded-at">
+    Last loaded
+    <strong>{{ loaded_at.strftime("%Y-%m-%d %H:%M:%S UTC") if loaded_at else "—" }}</strong>
+  </p>
+  <p class="form-help">
+    Edit <code>config.json</code> on disk and click <strong>Reload now</strong>
+    to apply changes without restarting the app. Validation runs on reload;
+    a broken config refuses and the previous live config keeps serving.
+  </p>
+  <form method="post" action="{{ url_for('settings.reload') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn">{{ "reload_config" | ui }}</button>
+  </form>
+</section>

@@ -48,7 +48,14 @@ from flexlog.web.filters import ui_filter
 settings_bp = Blueprint("settings", __name__, url_prefix="/settings")
 
 _PASSWORD_MIN_LEN = 8
-_VALID_TABS = ("app", "ratings", "ui_strings", "limits", "raw")
+_VALID_TABS = (
+    # Application group — config-driven labels, rating dims, limits.
+    "app", "ratings", "ui_strings", "limits", "raw",
+    # System group — data-dir info + password change. No POST handler
+    # at /settings/<tab> for these; they post to /settings/reload and
+    # /settings/change-password respectively.
+    "config", "security",
+)
 
 
 def _config_as_dict() -> dict:

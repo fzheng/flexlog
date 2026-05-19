@@ -44,8 +44,10 @@ body {
   background: var(--bg);
   font-size: 16px;
   line-height: 1.55;
-  /* Reserve space so fixed status bar doesn't cover content at scroll-bottom. */
-  padding-bottom: 2.5rem;
+  /* Reserve a little space below content — the status bar is now a
+     corner pill (bottom-right) so doesn't strictly need full-width
+     reserved space, but a small buffer keeps the last line above it. */
+  padding-bottom: 1.5rem;
 }
 
 a {
@@ -1130,6 +1132,61 @@ h3 {
 .settings-tabs a { padding: 0.6rem 1rem; color: #4b5563; text-decoration: none; border-bottom: 2px solid transparent; }
 .settings-tabs a.active { color: #111; border-bottom-color: #2563eb; font-weight: 600; }
 
+/* Grouped tabs: two visually-separated columns under labeled headers
+   ("Application" tabs for config-driven things, "System" tabs for
+   data-dir info + password change). */
+.settings-tabs-grouped {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 2rem;
+  border-bottom: 1px solid #d1d5db;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0;
+}
+.settings-tab-group {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.settings-tab-group:not(:last-child) {
+  /* Vertical divider between groups; faint */
+  border-right: 1px solid var(--rule);
+  padding-right: 1.5rem;
+  margin-right: -0.5rem;
+}
+.settings-tab-group-label {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 0.5rem 0.85rem 0;
+  align-self: flex-end;
+}
+.settings-tab-group a {
+  padding: 0.6rem 1rem;
+  color: #4b5563;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.settings-tab-group a.active {
+  color: #111;
+  border-bottom-color: #2563eb;
+  font-weight: 600;
+}
+
+.settings-section { margin-top: 1.5rem; }
+.settings-config-path code {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--bg-soft);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--rule);
+}
+.settings-loaded-at { color: var(--muted); font-size: 0.85rem; }
+
 .settings-errors { padding: 0.8rem 1rem; background: #fee2e2; border-left: 3px solid #dc2626; margin-bottom: 1rem; }
 .settings-errors ul { margin: 0.4rem 0 0 1.2rem; }
 
@@ -1210,19 +1267,22 @@ h3 {
 /* ---- Status bar (sticky footer, every authed page) ---- */
 
 .status-bar {
+  /* Pinned to the bottom-right corner — quiet status pill, doesn't
+     span the full viewport width. Doesn't reserve full-width space
+     so content can scroll under it (avoiding wasted bottom margin). */
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 0.5rem;
+  right: 0.75rem;
   background: var(--bg-soft);
-  border-top: 1px solid var(--rule);
-  padding: 0.4rem 1rem;
+  border: 1px solid var(--rule);
+  padding: 0.35rem 0.75rem;
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--muted);
   display: flex;
   gap: 0.5rem;
   z-index: 10;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 .status-storage,
 .status-last {

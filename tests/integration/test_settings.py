@@ -13,13 +13,29 @@ def _write_config(data_dir, cfg: dict) -> None:
 
 
 def test_settings_page_renders(authed_client, tmp_data_dir):
-    resp = authed_client.get("/settings")
+    """The config-path display + reload button live under the Config
+    tab now (v0.9.x grouped settings menu)."""
+    resp = authed_client.get("/settings?tab=config")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Reload now" in body
     assert str(tmp_data_dir / "config.json") in body
     assert 'action="/settings/reload"' in body
     assert 'method="post"' in body or 'method="POST"' in body
+
+
+def test_settings_default_tab_renders(authed_client):
+    """Default /settings (no tab=) renders the App tab + both group
+    sub-nav sections."""
+    resp = authed_client.get("/settings")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    # Group headers
+    assert "Application" in body
+    assert "System" in body
+    # Both new tab links present in the nav
+    assert "settings-tab-config" in body
+    assert "settings-tab-security" in body
 
 
 def test_reload_picks_up_new_label(authed_client, tmp_data_dir):

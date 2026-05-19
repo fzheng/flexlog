@@ -13,12 +13,22 @@
   </div>
   {% endif %}
 
-  <nav class="settings-tabs">
-    <a id="settings-tab-app" href="{{ url_for('settings.index', tab='app') }}" {% if tab == 'app' %}class="active"{% endif %}>App</a>
-    <a id="settings-tab-ratings" href="{{ url_for('settings.index', tab='ratings') }}" {% if tab == 'ratings' %}class="active"{% endif %}>Ratings</a>
-    <a id="settings-tab-ui_strings" href="{{ url_for('settings.index', tab='ui_strings') }}" {% if tab == 'ui_strings' %}class="active"{% endif %}>UI strings</a>
-    <a id="settings-tab-limits" href="{{ url_for('settings.index', tab='limits') }}" {% if tab == 'limits' %}class="active"{% endif %}>Limits</a>
-    <a id="settings-tab-raw" href="{{ url_for('settings.index', tab='raw') }}" {% if tab == 'raw' %}class="active"{% endif %}>Raw JSON</a>
+  {# Grouped two-row tab nav. Application group = the 5 config tabs.
+     System group = data-dir info + password change. #}
+  <nav class="settings-tabs settings-tabs-grouped">
+    <div class="settings-tab-group">
+      <span class="settings-tab-group-label">Application</span>
+      <a id="settings-tab-app" href="{{ url_for('settings.index', tab='app') }}" {% if tab == 'app' %}class="active"{% endif %}>App</a>
+      <a id="settings-tab-ratings" href="{{ url_for('settings.index', tab='ratings') }}" {% if tab == 'ratings' %}class="active"{% endif %}>Ratings</a>
+      <a id="settings-tab-ui_strings" href="{{ url_for('settings.index', tab='ui_strings') }}" {% if tab == 'ui_strings' %}class="active"{% endif %}>UI strings</a>
+      <a id="settings-tab-limits" href="{{ url_for('settings.index', tab='limits') }}" {% if tab == 'limits' %}class="active"{% endif %}>Limits</a>
+      <a id="settings-tab-raw" href="{{ url_for('settings.index', tab='raw') }}" {% if tab == 'raw' %}class="active"{% endif %}>Raw JSON</a>
+    </div>
+    <div class="settings-tab-group">
+      <span class="settings-tab-group-label">System</span>
+      <a id="settings-tab-config" href="{{ url_for('settings.index', tab='config') }}" {% if tab == 'config' %}class="active"{% endif %}>Config file</a>
+      <a id="settings-tab-security" href="{{ url_for('settings.index', tab='security') }}" {% if tab == 'security' %}class="active"{% endif %}>Security</a>
+    </div>
   </nav>
 
   <div class="settings-tab-content">
@@ -27,39 +37,10 @@
     {% elif tab == 'ui_strings' %}{% include "settings/_ui_strings.html" %}
     {% elif tab == 'limits' %}{% include "settings/_limits.html" %}
     {% elif tab == 'raw' %}{% include "settings/_raw.html" %}
+    {% elif tab == 'config' %}{% include "settings/_config.html" %}
+    {% elif tab == 'security' %}{% include "settings/_security.html" %}
     {% endif %}
   </div>
-</section>
-
-<section class="settings-page" style="margin-top:3rem">
-  <h3>{{ "config_path_label" | ui }}</h3>
-  <p><code>{{ config_path }}</code> · last loaded {{ loaded_at.strftime("%Y-%m-%d %H:%M:%S UTC") if loaded_at else "—" }}</p>
-  <form method="post" action="{{ url_for('settings.reload') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" class="btn">{{ "reload_config" | ui }}</button>
-  </form>
-</section>
-
-<section class="settings-page" style="margin-top:3rem">
-  <h3>{{ "change_password_heading" | ui }}</h3>
-  <form method="post" action="{{ url_for('settings.change_password') }}" class="person-form" autocomplete="off">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="form-row">
-      <label for="current_password">{{ "current_password_label" | ui }}</label>
-      <input id="current_password" type="password" name="current_password" required>
-    </div>
-    <div class="form-row">
-      <label for="new_password">{{ "new_password_label" | ui }}</label>
-      <input id="new_password" type="password" name="new_password" required minlength="8">
-    </div>
-    <div class="form-row">
-      <label for="new_password_confirm">{{ "new_password_confirm_label" | ui }}</label>
-      <input id="new_password_confirm" type="password" name="new_password_confirm" required minlength="8">
-    </div>
-    <div class="form-actions">
-      <button type="submit" class="btn btn-primary">{{ "change_password_submit" | ui }}</button>
-    </div>
-  </form>
 </section>
 
 <script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>

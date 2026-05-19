@@ -959,10 +959,15 @@ paths:
           in: query
           schema:
             type: string
-            enum: [app, ratings, ui_strings, limits, raw, change_password]
+            enum: [app, ratings, ui_strings, limits, raw, config, security]
+            default: app
           description: |
             Which tab to render selected. The tabs share one URL and
-            differ only in which form is active.
+            differ only in which form is active. Tabs are grouped in
+            the UI into "Application" (app/ratings/ui_strings/limits/
+            raw — all config-driven) and "System" (config — data-dir
+            info + reload button; security — password change form).
+            Unknown values silently fall back to `app`.
       responses:
         '200':
           $ref: '#/components/responses/HtmlPage'
