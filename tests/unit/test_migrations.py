@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import text
+import pytest
+from sqlalchemy import create_engine, text
 
 from flexlog.migrations.v1_to_v2 import (
     migrate_to_latest,
@@ -14,12 +15,33 @@ from flexlog.migrations.v1_to_v2 import (
 )
 
 
+# Per-test engine registry. The helpers below append; the autouse fixture
+# disposes everything on teardown so SQLite connections don't leak into
+# the gc-late ResourceWarning sweep at session end.
+_TEST_ENGINES: list = []
+
+
+@pytest.fixture(autouse=True)
+def _dispose_engines_after_test():
+    """Track-and-dispose: the two helper functions (`_make_v1_engine`,
+    `_make_v1_engine_with_dependents`) append every engine they create
+    to `_TEST_ENGINES`. This fixture drains + disposes on teardown."""
+    _TEST_ENGINES.clear()
+    yield
+    while _TEST_ENGINES:
+        eng = _TEST_ENGINES.pop()
+        try:
+            eng.dispose()
+        except Exception:
+            pass
+
+
 def _make_v1_engine(tmp_path):
     """Build an old-shape DB (no SQLCipher; plain SQLite is fine for the
     migration unit test). Schema matches what v0.2.0 wrote."""
-    from sqlalchemy import create_engine
     db = tmp_path / "v1.db"
     engine = create_engine(f"sqlite:///{db}")
+    _TEST_ENGINES.append(engine)
     with engine.begin() as c:
         c.execute(text("PRAGMA user_version = 0"))
         c.execute(text("""
@@ -109,9 +131,9 @@ def _make_v1_engine_with_dependents(tmp_path):
     with FKs pointing at `session`, plus a media_file and a person row so
     the FKs are satisfied. Mirrors the real prod shape that the migration
     must preserve."""
-    from sqlalchemy import create_engine
     db = tmp_path / "v1_with_deps.db"
     engine = create_engine(f"sqlite:///{db}")
+    _TEST_ENGINES.append(engine)
     with engine.begin() as c:
         c.execute(text("PRAGMA user_version = 0"))
         c.execute(text("""
@@ -245,10 +267,9 @@ def test_repair_dangling_session_fk_refs_fixes_broken_db(tmp_path):
     _session_old after a botched rename-first migration. The repair
     must recreate them with FKs back to session, preserve data, and
     leave the cascade chain working."""
-    from sqlalchemy import create_engine
-
     db = tmp_path / "broken.db"
     engine = create_engine(f"sqlite:///{db}")
+    _TEST_ENGINES.append(engine)
     with engine.begin() as c:
         # Build the broken state directly: session is correct, but
         # session_media references _session_old in its FK.

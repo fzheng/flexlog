@@ -41,10 +41,13 @@ def test_attach_to_app_sets_config_keys():
 
     app = Flask(__name__)
     engine = create_engine("sqlite:///:memory:")
-    factory = sessionmaker(bind=engine)
-    attach_to_app(app, engine, factory)
-    assert app.config.get("FLEXLOG_DB_ENGINE") is engine
-    assert app.config.get("FLEXLOG_DB_SESSION_FACTORY") is factory
+    try:
+        factory = sessionmaker(bind=engine)
+        attach_to_app(app, engine, factory)
+        assert app.config.get("FLEXLOG_DB_ENGINE") is engine
+        assert app.config.get("FLEXLOG_DB_SESSION_FACTORY") is factory
+    finally:
+        engine.dispose()
 
 
 def test_detach_engine_at_runtime_idempotent():
@@ -67,7 +70,9 @@ def test_detach_engine_at_runtime_disposes_engine():
     engine = create_engine("sqlite:///:memory:")
     factory = sessionmaker(bind=engine)
     attach_to_app(app, engine, factory)
-
+    # detach_engine_at_runtime calls engine.dispose() internally — no
+    # try/finally needed here. (test_attach_to_app_sets_config_keys
+    # above DOES need finally: it doesn't call detach.)
     detach_engine_at_runtime(app)
     assert "FLEXLOG_DB_ENGINE" not in app.config
     assert "FLEXLOG_DB_SESSION_FACTORY" not in app.config
@@ -85,8 +90,11 @@ def test_engine_is_attached_explicit_app_arg():
     assert engine_is_attached(app) is False
 
     engine = create_engine("sqlite:///:memory:")
-    attach_to_app(app, engine, sessionmaker(bind=engine))
-    assert engine_is_attached(app) is True
+    try:
+        attach_to_app(app, engine, sessionmaker(bind=engine))
+        assert engine_is_attached(app) is True
+    finally:
+        engine.dispose()
 
 
 def test_get_db_raises_when_no_engine():

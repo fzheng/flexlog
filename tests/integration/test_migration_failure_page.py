@@ -55,14 +55,17 @@ def test_migrate_to_latest_refuses_future_schema_version(tmp_path):
     # user_version can be stamped on).
     db_path = tmp_path / "future.db"
     engine = create_engine(f"sqlite:///{db_path}")
-    with engine.begin() as conn:
-        conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION + 1}"))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION + 1}"))
 
-    with pytest.raises(MigrationError) as exc_info:
-        migrate_to_latest(engine)
-    msg = str(exc_info.value)
-    assert "newer than this build supports" in msg
-    assert str(TARGET_VERSION + 1) in msg
+        with pytest.raises(MigrationError) as exc_info:
+            migrate_to_latest(engine)
+        msg = str(exc_info.value)
+        assert "newer than this build supports" in msg
+        assert str(TARGET_VERSION + 1) in msg
+    finally:
+        engine.dispose()
 
 
 def test_migrate_to_latest_accepts_equal_schema_version(tmp_path):
@@ -73,8 +76,11 @@ def test_migrate_to_latest_accepts_equal_schema_version(tmp_path):
 
     db_path = tmp_path / "current.db"
     engine = create_engine(f"sqlite:///{db_path}")
-    with engine.begin() as conn:
-        conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"PRAGMA user_version = {TARGET_VERSION}"))
 
-    # No-op; should not raise.
-    migrate_to_latest(engine)
+        # No-op; should not raise.
+        migrate_to_latest(engine)
+    finally:
+        engine.dispose()

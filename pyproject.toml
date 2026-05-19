@@ -40,6 +40,16 @@ flexlog = ["templates/**/*.html", "static/**/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=flexlog --cov-report=term-missing --cov-fail-under=85 -ra"
+markers = [
+    "slow: opt-in slow tests (e.g. wheel-build smoke). Run with `-m slow`.",
+]
+filterwarnings = [
+    # test_db_models deliberately triggers a duplicate-id INSERT to verify
+    # the UNIQUE constraint. SQLAlchemy emits SAWarning before the DB
+    # constraint trips; the test catches the DB error and asserts the
+    # behavior we want.
+    "ignore:New instance.*conflicts with persistent instance:sqlalchemy.exc.SAWarning",
+]
 
 [tool.coverage.run]
 branch = false
