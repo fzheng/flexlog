@@ -61,6 +61,32 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v0.8.2 — Supply-Chain Hardening
+
+- **Hash-pinned dependency lock.** `requirements.lock` lists every
+  direct + transitive Python dep with its SHA-256 hash. A hijacked
+  PyPI version fails `pip install --require-hashes` and the install
+  refuses to continue. Regenerate after dep changes via `make lock`.
+- **CVE audit via `make audit`.** Runs `pip-audit --strict` against
+  the lockfile and exits non-zero on any known vulnerability —
+  intended as a release gate.
+- **Vendored-JS integrity manifest.** `flexlog/static/vendor/INTEGRITY.txt`
+  is a SHA-256 manifest of every committed PhotoSwipe / Cropper.js
+  file. `make install` runs `sha256sum -c` (or `shasum -a 256 -c` on
+  macOS) and aborts if any vendor file has drifted on disk.
+- **Subresource Integrity (SRI) in templates.** Every `<script>`
+  and `<link rel="stylesheet">` for a vendored asset now carries an
+  `integrity="sha384-..."` attribute. The browser refuses to execute
+  a tampered file even if it slips past the server.
+- **Strict response headers.** CSP (`script-src 'self'`,
+  `connect-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options:
+  DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy:
+  no-referrer`, `Permissions-Policy` denying all hardware APIs.
+
+To regenerate the vendor integrity manifest after updating a
+vendored file, run `python scripts/regen_vendor_integrity.py` and
+commit the resulting `INTEGRITY.txt` + `flexlog/web/vendor_integrity.py`.
+
 ## v0.8.0 — Status Bar + Data-Integrity Sweep
 
 - **Status bar at the bottom of every authed page.** Shows total
