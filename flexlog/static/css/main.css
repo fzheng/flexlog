@@ -44,6 +44,8 @@ body {
   background: var(--bg);
   font-size: 16px;
   line-height: 1.55;
+  /* Reserve space so fixed status bar doesn't cover content at scroll-bottom. */
+  padding-bottom: 2.5rem;
 }
 
 a {
@@ -1204,3 +1206,28 @@ h3 {
 .weight-sum-indicator.valid { background: #dcfce7; color: #14532d; }
 .weight-sum-indicator.invalid { background: #fee2e2; color: #7f1d1d; }
 .weight-pct { font-size: 11px; color: #6b7280; margin-left: 4px; }
+
+/* ---- Status bar (sticky footer, every authed page) ---- */
+
+.status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--bg-soft);
+  border-top: 1px solid var(--rule);
+  padding: 0.4rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  gap: 0.5rem;
+  z-index: 10;
+}
+.status-storage,
+.status-last {
+  white-space: nowrap;
+}
+.status-sep {
+  color: var(--rule);
+}
