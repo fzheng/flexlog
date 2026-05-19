@@ -24,6 +24,7 @@ from flexlog.services.sessions import (
     delete_session,
     enabled_rating_dimensions,
     get_session,
+    is_safe_link_url,
     link_media_to_session,
     split_ratings,
     unlink_media_from_session,
@@ -109,7 +110,9 @@ def _build_existing_links_for_template(urls: list[str], keys: list[str]) -> list
     rows = []
     for u, k in zip(urls, keys):
         url = (u or "").strip()
-        if not url:
+        if not is_safe_link_url(url):
+            # Re-render gate matches the storage gate: don't echo back
+            # javascript:/data: URLs from a hand-crafted POST.
             continue
         key = (k or "").strip()
         if key and key in mf_by_key:

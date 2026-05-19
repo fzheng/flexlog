@@ -137,11 +137,25 @@ function bindLinkSection() {
     const raw = input.value.trim();
     errEl.hidden = true;
     if (!raw) return;
+    let parsed;
     try {
-      const u = new URL(raw);
-      if (!u.protocol || !u.host) throw new Error("missing host");
+      parsed = new URL(raw);
     } catch {
       errEl.textContent = "Invalid URL — include http:// or https://";
+      errEl.hidden = false;
+      return;
+    }
+    // Allowlist only http(s). Reject javascript:, data:, file:, etc. —
+    // the server also drops these (services.sessions.is_safe_link_url),
+    // but rejecting here gives an immediate error instead of the URL
+    // silently disappearing on save.
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      errEl.textContent = "Only http:// and https:// URLs are allowed";
+      errEl.hidden = false;
+      return;
+    }
+    if (!parsed.host) {
+      errEl.textContent = "Invalid URL — missing host";
       errEl.hidden = false;
       return;
     }

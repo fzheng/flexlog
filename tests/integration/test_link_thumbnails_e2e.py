@@ -257,3 +257,155 @@ def test_edit_form_renders_existing_thumbnail(
     assert f"/media/{mf.file_key}" in body
     assert f'value="{mf.file_key}"' in body  # hidden link_thumb_keys input
     assert 'name="link_thumb_keys"' in body
+
+
+# ---------- URL scheme safety gate ----------
+
+def test_create_session_drops_javascript_url(person, db_session):
+    """A hand-crafted POST with a javascript: URL must be silently dropped
+    by the service-layer gate, never stored, never echoed back."""
+    from flexlog.services.sessions import create_session
+    s = create_session(
+        db_session, person_id=person.id, session_date="2026-05-17",
+        ratings={"energy": 4}, notes=None,
+        link_urls=["javascript:alert(1)", "https://example.com/ok"],
+        link_thumb_keys=["", ""],
+    )
+    db_session.commit()
+    assert len(s.links) == 1
+    assert s.links[0].url == "https://example.com/ok"
+
+
+def test_create_session_drops_data_and_file_urls(person, db_session):
+    """Defense in depth — data: and file: URLs should also be rejected
+    so that no non-http(s) scheme can ever land in storage."""
+    from flexlog.services.sessions import create_session
+    s = create_session(
+        db_session, person_id=person.id, session_date="2026-05-17",
+        ratings={"energy": 4}, notes=None,
+        link_urls=[
+            "data:text/html,<script>x</script>",
+            "file:///etc/passwd",
+            "https://example.com/ok",
+        ],
+        link_thumb_keys=["", "", ""],
+    )
+    db_session.commit()
+    assert [li.url for li in s.links] == ["https://example.com/ok"]
+
+
+def test_is_safe_link_url_helper():
+    """The helper is the single source of truth for the scheme gate."""
+    from flexlog.services.sessions import is_safe_link_url
+    assert is_safe_link_url("http://example.com")
+    assert is_safe_link_url("https://example.com/path?q=1")
+    assert is_safe_link_url("  https://example.com  ")  # whitespace OK
+    assert not is_safe_link_url("javascript:alert(1)")
+    assert not is_safe_link_url("JaVaScRiPt:alert(1)")  # case-insensitive
+    assert not is_safe_link_url("data:text/html,<x>")
+    assert not is_safe_link_url("file:///etc/passwd")
+    assert not is_safe_link_url("//example.com")  # protocol-relative
+    assert not is_safe_link_url("ftp://example.com")
+    assert not is_safe_link_url("")
+    assert not is_safe_link_url("   ")
+    assert not is_safe_link_url(None)
+    assert not is_safe_link_url(123)
+
+
+# ---------- Route-level POST: full Flask stack with CSRF ----------
+
+def _csrf_token_from(body: str) -> str:
+    import re
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', body)
+    assert m is not None, "csrf token not found in form body"
+    return m.group(1)
+
+
+def test_update_route_persists_link_thumb_key_via_form_post(
+    csrf_authed_client, csrf_person, csrf_db_session,
+):
+    """End-to-end: POST /sessions/<id> with link_urls[] and parallel
+    link_thumb_keys[] form fields. The route's
+    _parse_link_thumb_keys_from_request → update_session pipeline must
+    attach the thumb_key's MediaFile to the saved SessionLink."""
+    from flexlog.services.media import upload_to_media_file
+    from flexlog.services.sessions import create_session, get_session
+
+    fs = FileStorage(
+        stream=io.BytesIO(_make_jpeg_bytes()),
+        filename="screenshot.jpg",
+        content_type="image/jpeg",
+    )
+    mf = upload_to_media_file(csrf_db_session, fs)
+    csrf_db_session.commit()
+
+    # Seed a session with no thumbnail.
+    s = create_session(
+        csrf_db_session, person_id=csrf_person.id, session_date="2026-05-17",
+        ratings={"energy": 3}, notes=None,
+        link_urls=["https://example.com/article"],
+        link_thumb_keys=[""],
+    )
+    csrf_db_session.commit()
+    sid = s.id
+    assert s.links[0].thumbnail_media_id is None
+
+    # Scrape CSRF token from the edit form.
+    edit_body = csrf_authed_client.get(f"/sessions/{sid}/edit").get_data(as_text=True)
+    token = _csrf_token_from(edit_body)
+
+    # POST through the real Flask handler, simulating the form submit
+    # the JS would produce after a paste.
+    resp = csrf_authed_client.post(
+        f"/sessions/{sid}",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-05-17",
+            "notes": "",
+            "rating_energy": "3",
+            "link_urls": ["https://example.com/article"],
+            "link_thumb_keys": [mf.file_key],
+        },
+    )
+    assert resp.status_code in (302, 303), resp.get_data(as_text=True)[:500]
+
+    # Re-fetch and confirm the thumbnail landed in the DB.
+    s2 = get_session(csrf_db_session, sid)
+    assert s2.links[0].thumbnail_media_id == mf.id
+
+
+def test_update_route_drops_javascript_url_via_form_post(
+    csrf_authed_client, csrf_person, csrf_db_session,
+):
+    """End-to-end: a javascript: URL submitted via the real POST handler
+    must not land in the DB. Defense-in-depth — even if the client
+    validator is bypassed, the server's is_safe_link_url gate catches it."""
+    from flexlog.services.sessions import create_session, get_session
+
+    s = create_session(
+        csrf_db_session, person_id=csrf_person.id, session_date="2026-05-17",
+        ratings={"energy": 3}, notes=None,
+        link_urls=["https://example.com/safe"],
+        link_thumb_keys=[""],
+    )
+    csrf_db_session.commit()
+    sid = s.id
+
+    edit_body = csrf_authed_client.get(f"/sessions/{sid}/edit").get_data(as_text=True)
+    token = _csrf_token_from(edit_body)
+
+    resp = csrf_authed_client.post(
+        f"/sessions/{sid}",
+        data={
+            "csrf_token": token,
+            "session_date": "2026-05-17",
+            "notes": "",
+            "rating_energy": "3",
+            "link_urls": ["javascript:alert(1)", "https://example.com/safe"],
+            "link_thumb_keys": ["", ""],
+        },
+    )
+    assert resp.status_code in (302, 303)
+
+    s2 = get_session(csrf_db_session, sid)
+    assert [li.url for li in s2.links] == ["https://example.com/safe"]

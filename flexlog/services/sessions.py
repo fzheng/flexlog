@@ -23,6 +23,25 @@ from flexlog.db.models import MediaFile, Person, Session as SessionRow, SessionL
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+_SAFE_LINK_SCHEMES = ("http://", "https://")
+
+
+def is_safe_link_url(url: object) -> bool:
+    """True iff `url` is a non-empty string with an http(s) scheme.
+
+    Defense-in-depth against javascript:/data:/file:/etc. URLs being
+    stored or rendered as a clickable href. Used at form-parse time
+    (silent drop on unsafe schemes — they only arrive via hand-crafted
+    POSTs since the client validates). Also used when rebuilding the
+    template's `existing_links` so a form re-render after a validation
+    error doesn't echo back an attacker-supplied bad URL."""
+    if not isinstance(url, str):
+        return False
+    s = url.strip()
+    if not s:
+        return False
+    return s.lower().startswith(_SAFE_LINK_SCHEMES)
+
 
 def enabled_rating_dimensions():
     """Return the list of enabled rating dimensions from app config."""
@@ -79,7 +98,10 @@ def _replace_links(
     session_row.links = []
     for i, (raw_url, raw_key) in enumerate(zip(urls, thumb_keys)):
         url = (raw_url or "").strip()
-        if not url:
+        if not is_safe_link_url(url):
+            # Drops both blanks and unsafe schemes (javascript:, data:, etc.).
+            # Normal flow can't reach this — the client validates — so any
+            # hit is either an old-data echo or a hand-crafted POST.
             continue
         key = (raw_key or "").strip()
         mf = mf_by_key.get(key) if key else None
