@@ -13,13 +13,44 @@ than a dangling DB row pointing at a deleted file.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session as SASession
 
 from flexlog import paths
 from flexlog.db.models import MediaFile, Person, SessionLink, SessionMedia
+
+logger = logging.getLogger("flexlog.library")
+
+
+# Module-level listener registered ONCE on the Session class (not on individual
+# session instances). Fires on every commit; drains the per-session
+# "pending_unlinks" set that hard_delete populates.
+#
+# I4: the previous pattern registered a NEW listener per hard_delete call, each
+# capturing one file_key and guarded by a one-shot `fired` flag. That was
+# fragile: a later unrelated db.commit() in the same request would fire all
+# stale listeners and unlink files the second commit didn't intend to remove.
+# A single class-level listener + per-session info dict collapses cleanly.
+@event.listens_for(SASession, "after_commit")
+def _drain_pending_unlinks(session):
+    pending = session.info.pop("pending_unlinks", None)
+    if not pending:
+        return
+    for file_key in pending:
+        try:
+            paths.resolve_file_key(file_key).unlink(missing_ok=True)
+        except Exception as exc:
+            # M1: was silently swallowed; now logged so accumulated
+            # phantom files are diagnosable in production. Continue
+            # draining remaining keys rather than aborting the whole set.
+            logger.warning(
+                "failed to unlink %s after hard_delete commit: %s",
+                file_key, exc,
+            )
 
 
 class MediaNotFoundError(LookupError):
@@ -126,33 +157,9 @@ def hard_delete(db: Session, media_file_id: str) -> None:
     file_key = mf.file_key
     db.delete(mf)
     db.flush()
-    # The caller should commit AFTER this returns. We perform the disk unlink
-    # only after the caller commits. To honor the spec's commit-then-unlink
-    # ordering we expose a deferred-unlink mechanism: stash the file_key on
-    # the session's info dict so the caller (e.g. the route handler) can
-    # unlink after commit. But for service ergonomics we offer the simpler
-    # contract: caller commits, then calls a partner function. To keep the
-    # API one-call-per-action, we instead do: delete + flush, then on commit
-    # we unlink. Easiest way: use SQLAlchemy event 'after_commit'.
-    #
-    # See docs/superpowers/specs/2026-05-07-flexlog-design.md §5.2.
-    from sqlalchemy import event
-
-    # Use a one-shot flag to guard against multiple firings. We do NOT call
-    # event.remove() inside the callback because SA 2.x iterates listeners
-    # in a deque and mutating it during iteration raises RuntimeError. The
-    # listener persists on the session but is a no-op after the first fire;
-    # since sessions are request-scoped this doesn't accumulate state.
-    fired: list[bool] = []
-
-    def _unlink_after_commit(_session):
-        if fired:
-            return
-        fired.append(True)
-        try:
-            paths.resolve_file_key(file_key).unlink(missing_ok=True)
-        except Exception:
-            # Disk failure leaves an orphaned file (recoverable manually).
-            pass
-
-    event.listen(db, "after_commit", _unlink_after_commit)
+    # Defer the disk unlink to after-commit. The module-level
+    # _drain_pending_unlinks listener drains this set on every commit.
+    # Using a set means duplicate calls within one transaction collapse
+    # cleanly (idempotent). The listener is registered ONCE on SASession
+    # (the class), so there is no per-call listener accumulation.
+    db.info.setdefault("pending_unlinks", set()).add(file_key)

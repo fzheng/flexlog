@@ -218,3 +218,69 @@ def test_media_library_row_total_refs(app, db_session):
     assert isinstance(rows[0], MediaLibraryRow)
     assert rows[0].total_refs == 0
     assert rows[0].is_orphan
+
+
+def test_hard_delete_drains_multiple_pending_unlinks(app, db_session):
+    """I4: hard_delete'ing N files in one transaction should fire ONE
+    listener that drains all N file_keys on commit, not N listeners
+    each capturing one file_key. Verified by: 3 orphan files, 3 calls,
+    one commit, all 3 disk files unlinked."""
+    from flexlog import paths
+    from flexlog.db.models import MediaFile
+
+    # Three different SHAs via different tail bytes — JPEG_BYTES at
+    # module top already has valid magic-byte prefix; the rest is
+    # arbitrary.
+    photo1 = _upload(app, db_session, "1.jpg", JPEG_BYTES + b"\xaa", "image/jpeg")
+    photo2 = _upload(app, db_session, "2.jpg", JPEG_BYTES + b"\xbb", "image/jpeg")
+    photo3 = _upload(app, db_session, "3.jpg", JPEG_BYTES + b"\xcc", "image/jpeg")
+    db_session.commit()
+
+    targets = [paths.resolve_file_key(p.file_key) for p in (photo1, photo2, photo3)]
+    for t in targets:
+        assert t.exists()
+
+    with app.app_context():
+        hard_delete(db_session, photo1.id)
+        hard_delete(db_session, photo2.id)
+        hard_delete(db_session, photo3.id)
+        db_session.commit()
+
+    # All three on-disk files gone.
+    for t in targets:
+        assert not t.exists(), f"{t} should have been unlinked"
+    # All three DB rows gone.
+    for p in (photo1, photo2, photo3):
+        assert db_session.get(MediaFile, p.id) is None
+
+
+def test_hard_delete_logs_warning_on_unlink_failure(
+    app, db_session, monkeypatch, caplog,
+):
+    """M1: a disk-unlink failure must be logged (was silently swallowed
+    before). Without logging, accumulated phantom files are
+    undiagnosable."""
+    import logging
+    from flexlog import paths
+    from pathlib import Path
+
+    photo = _upload(app, db_session, "x.jpg", JPEG_BYTES, "image/jpeg")
+    db_session.commit()
+
+    # Force unlink to fail.
+    original_unlink = Path.unlink
+    def bad_unlink(self, *a, **kw):
+        if self.name.endswith(".jpg") or "uploads" in str(self):
+            raise PermissionError("simulated permission denied")
+        return original_unlink(self, *a, **kw)
+    monkeypatch.setattr(Path, "unlink", bad_unlink)
+
+    with app.app_context(), caplog.at_level(logging.WARNING, logger="flexlog"):
+        hard_delete(db_session, photo.id)
+        db_session.commit()
+
+    # The DB row is gone (commit succeeded). The disk unlink failed and
+    # was logged.
+    assert any(
+        "failed to unlink" in r.message.lower() for r in caplog.records
+    ), f"expected unlink-failure warning, got: {[r.message for r in caplog.records]}"
