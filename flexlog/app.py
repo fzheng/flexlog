@@ -111,6 +111,9 @@ def create_app() -> Flask:
     app.jinja_env.filters["humanize_bytes"] = humanize_bytes_filter
     app.jinja_env.filters["iso_local_minute"] = iso_local_minute
 
+    from flexlog.web.security_headers import register_security_headers
+    register_security_headers(app)
+
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
         return {"labels": build_labels_context(current_app.config["FLEXLOG"])}
