@@ -23,6 +23,28 @@ from flexlog.web.filters import build_labels_context, notes_preview, ui_filter
 LOGGER_NAME = "flexlog"
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
+_TMP_SWEEP_CUTOFF_SECONDS = 86400  # 24h — slow uploads on slow disks
+                                    # across an app restart shouldn't race
+                                    # the sweep.
+
+
+def _sweep_tmp_uploads() -> None:
+    """Delete tmp-upload files older than _TMP_SWEEP_CUTOFF_SECONDS.
+    Called at every app startup from create_app(). Best-effort —
+    OSError on individual files is swallowed; the next startup tries
+    again."""
+    import time
+    tmp_dir = paths.tmp_uploads_dir()
+    if not tmp_dir.exists():
+        return
+    cutoff = time.time() - _TMP_SWEEP_CUTOFF_SECONDS
+    for entry in tmp_dir.iterdir():
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink(missing_ok=True)
+        except OSError:
+            pass
+
 
 def create_app() -> Flask:
     _configure_logging()
@@ -30,17 +52,7 @@ def create_app() -> Flask:
     data_dir = paths.data_dir()
     paths.ensure_layout()
 
-    # Tmp-uploads sweep (unchanged from v0.1.0)
-    import time
-    tmp_dir = paths.tmp_uploads_dir()
-    cutoff = time.time() - 3600
-    if tmp_dir.exists():
-        for entry in tmp_dir.iterdir():
-            try:
-                if entry.is_file() and entry.stat().st_mtime < cutoff:
-                    entry.unlink(missing_ok=True)
-            except OSError:
-                pass
+    _sweep_tmp_uploads()
 
     config: Config = load_or_bootstrap(paths.config_path())
     loaded_at = datetime.now(timezone.utc)

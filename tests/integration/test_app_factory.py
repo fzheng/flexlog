@@ -146,7 +146,7 @@ def test_get_db_returns_same_session_within_request(app):
 
 
 def test_create_app_sweeps_stale_tmp_files(tmp_data_dir, monkeypatch):
-    """Stale .tmp files (>1 hour old) are removed at startup; fresh ones survive."""
+    """Stale .tmp files (>24h old) are removed at startup; recent ones survive."""
     import os
     import time
 
@@ -160,9 +160,9 @@ def test_create_app_sweeps_stale_tmp_files(tmp_data_dir, monkeypatch):
     stale = tmp / "stale.part"
     fresh = tmp / "fresh.part"
     stale.write_bytes(b"old"); fresh.write_bytes(b"new")
-    # Backdate stale to 2 hours ago
-    two_hours_ago = time.time() - 7200
-    os.utime(stale, (two_hours_ago, two_hours_ago))
+    # Backdate stale to 25 hours ago (beyond the 24h cutoff)
+    twenty_five_hours_ago = time.time() - 90000
+    os.utime(stale, (twenty_five_hours_ago, twenty_five_hours_ago))
 
     create_app()
 
