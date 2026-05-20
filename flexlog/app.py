@@ -143,6 +143,9 @@ def create_app() -> Flask:
         install_proxy_fix(app)
         app.config["SESSION_COOKIE_SECURE"] = True
 
+    from flexlog.web.rate_limit import install_rate_limiter
+    install_rate_limiter(app)
+
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
         return {"labels": build_labels_context(current_app.config["FLEXLOG"])}
@@ -196,6 +199,9 @@ def create_app() -> Flask:
     app.url_map.merge_slashes = False
 
     register_blueprints(app)
+
+    from flexlog.web.rate_limit import apply_route_limits
+    apply_route_limits(app)
 
     # Auth + bootstrap gate
     @app.before_request
