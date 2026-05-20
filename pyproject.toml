@@ -13,6 +13,7 @@ dependencies = [
     "Flask-WTF>=1.2,<2.0",
     "cryptography>=42,<47",
     "argon2-cffi>=23,<24",
+    "boto3>=1.34,<2",
     "sqlcipher3>=0.6,<1",
     "Pillow>=10,<13",
     "pillow-heif>=0.16,<2",
@@ -24,6 +25,7 @@ dev = [
     "pytest-cov>=5.0",
     "pip-tools>=7.4,<8",
     "pip-audit>=2.7,<3",
+    "moto[s3]>=5.0,<6",
     "openapi-spec-validator>=0.7,<1",
     "PyYAML>=6.0,<7",
 ]
