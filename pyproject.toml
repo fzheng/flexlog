@@ -9,6 +9,7 @@ description = "Local-only single-user 1v1 session journal"
 requires-python = ">=3.11"
 dependencies = [
     "Flask>=3.0,<4.0",
+    "Flask-Limiter>=3.5,<4",
     "SQLAlchemy>=2.0,<3.0",
     "Flask-WTF>=1.2,<2.0",
     "cryptography>=42,<47",

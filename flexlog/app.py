@@ -138,6 +138,11 @@ def create_app() -> Flask:
     from flexlog.web.security_headers import register_security_headers
     register_security_headers(app)
 
+    if os.environ.get("FLEXLOG_BEHIND_TLS") == "1":
+        from flexlog.web.proxy_fix import install_proxy_fix
+        install_proxy_fix(app)
+        app.config["SESSION_COOKIE_SECURE"] = True
+
     @app.context_processor
     def _inject_labels() -> dict[str, object]:
         return {"labels": build_labels_context(current_app.config["FLEXLOG"])}
