@@ -27,6 +27,8 @@ Header rationale, briefly:
 """
 from __future__ import annotations
 
+import os
+
 from flask import Flask, Response
 
 
@@ -53,13 +55,22 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Permissions-Policy": _PERMISSIONS_POLICY,
 }
 
+# HSTS: pin browsers to HTTPS for a year, including all subdomains. Only
+# emitted when FLEXLOG_BEHIND_TLS=1 — in dev (HTTP loopback) emitting it
+# would brick localhost browsing for a year.
+_HSTS = "max-age=31536000; includeSubDomains"
+
 
 def register_security_headers(app: Flask) -> None:
     """Install an after_request hook that adds the security headers
-    in _SECURITY_HEADERS to every response."""
+    in _SECURITY_HEADERS to every response. When FLEXLOG_BEHIND_TLS=1
+    is set, also emit Strict-Transport-Security."""
+    behind_tls = os.environ.get("FLEXLOG_BEHIND_TLS") == "1"
 
     @app.after_request
     def _add_security_headers(response: Response) -> Response:
         for name, value in _SECURITY_HEADERS.items():
             response.headers.setdefault(name, value)
+        if behind_tls:
+            response.headers.setdefault("Strict-Transport-Security", _HSTS)
         return response

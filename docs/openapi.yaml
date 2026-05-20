@@ -311,6 +311,20 @@ paths:
             (incorrect password — root if sensitive-shape, search
             otherwise).
 
+  /robots.txt:
+    get:
+      tags: [landing]
+      summary: Tell crawlers to stay out.
+      operationId: landing.robots_txt
+      security: []
+      responses:
+        '200':
+          description: Plain-text robots.txt that disallows all paths.
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /setup/set-password:
     get:
       tags: [setup]

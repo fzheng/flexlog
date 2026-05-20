@@ -37,6 +37,7 @@ _NON_API_ENDPOINTS = {
 _EXPECTED_PUBLIC_ENDPOINTS = {
     "landing.index",
     "landing.submit",
+    "landing.robots_txt",
     "setup.set_password_form",
     "setup.set_password",
     "setup.recover",

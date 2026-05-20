@@ -5,7 +5,7 @@ import re
 from urllib.parse import urlencode
 
 from flask import (
-    Blueprint, current_app, redirect, render_template, request, session, url_for,
+    Blueprint, Response, current_app, redirect, render_template, request, session, url_for,
 )
 
 from flexlog import paths
@@ -156,3 +156,13 @@ def submit():
     current_app.config["MASTER_KEY"] = master_key
     mark_authed(session, current_app.config)
     return redirect(url_for("landing.index"), code=303)
+
+
+@landing_bp.get("/robots.txt")
+def robots_txt():
+    """Tell crawlers to stay out of every flexlog endpoint.
+
+    This is a personal app, not public content. Even though the landing
+    page is disguised as Google, a leaked URL shouldn't end up in search
+    results."""
+    return Response("User-agent: *\nDisallow: /\n", mimetype="text/plain")

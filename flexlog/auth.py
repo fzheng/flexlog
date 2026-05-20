@@ -26,10 +26,11 @@ IDLE_TIMEOUT_SEC = 30 * 60
 # Endpoints that must remain reachable while unauthed. The before_request
 # auth gate consults this set; everything not in it gets a 303 to /.
 ALLOWED_UNAUTH_ENDPOINTS = frozenset({
-    "landing.index",   # GET /
-    "landing.submit",  # POST /
-    "auth.logout",     # POST /logout (no-op when unauthed, harmless)
-    "static",          # CSS / JS / vendor assets
+    "landing.index",      # GET /
+    "landing.submit",     # POST /
+    "landing.robots_txt", # GET /robots.txt
+    "auth.logout",        # POST /logout (no-op when unauthed, harmless)
+    "static",             # CSS / JS / vendor assets
 })
 
 _HEX_HASH_RE = re.compile(r"^[0-9a-f]{128}$")
