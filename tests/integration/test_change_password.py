@@ -3,9 +3,9 @@ from __future__ import annotations
 
 
 def test_change_password_form_renders(authed_client):
-    """The password form lives under the Security tab now (v0.9.x
-    grouped settings menu)."""
-    resp = authed_client.get("/settings?tab=security")
+    """The password form lives under the Security section (v1.0.0
+    sidebar layout)."""
+    resp = authed_client.get("/settings/security", follow_redirects=True)
     body = resp.get_data(as_text=True)
     assert "current_password" in body
     assert "new_password" in body
@@ -13,12 +13,12 @@ def test_change_password_form_renders(authed_client):
 
 
 def test_change_password_security_tab_link_on_settings_default(authed_client):
-    """Even on the default tab, the Security tab link must be present
-    so the user can navigate to the password form."""
-    resp = authed_client.get("/settings")
+    """The Security tab link must be present on the App section so the
+    user can navigate to the password form."""
+    resp = authed_client.get("/settings/app")
     body = resp.get_data(as_text=True)
     assert "settings-tab-security" in body
-    assert "tab=security" in body
+    assert "/settings/security" in body
 
 
 def test_change_password_happy_path(authed_client, admin_password, tmp_data_dir):

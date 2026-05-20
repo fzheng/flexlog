@@ -139,12 +139,27 @@ def _persist_and_swap(merged: dict, errors_redir_tab: str):
 
 @settings_bp.get("")
 def index():
-    tab = request.args.get("tab", "app")
-    if tab not in _VALID_TABS:
-        tab = "app"
+    """Bare /settings — redirect to /settings/<section>.
+
+    Default lands on /settings/app. If a ?tab=<x> query is supplied
+    (pre-v1.0.0 URL shape), redirect to /settings/<x> if valid,
+    otherwise to /settings/app.
+    """
+    tab = request.args.get("tab")
+    if tab and tab in _VALID_TABS:
+        return redirect(url_for("settings.section", section=tab), code=303)
+    return redirect(url_for("settings.section", section="app"), code=303)
+
+
+@settings_bp.get("/<section>")
+def section(section: str):
+    """Per-section settings page. Renders the shared shell template
+    with the requested section's partial."""
+    if section not in _VALID_TABS:
+        return redirect(url_for("settings.section", section="app"), code=303)
     return render_template(
         "settings/index.html",
-        tab=tab,
+        tab=section,
         config_dict=_config_as_dict(),
         errors=[],
         in_use_ids=_in_use_rating_ids(),
@@ -166,7 +181,7 @@ def save_app():
     result = _persist_and_swap(merged, errors_redir_tab="app")
     if result is not None:
         return result
-    return redirect(url_for("settings.index", tab="app"), code=303)
+    return redirect(url_for("settings.section", section="app"), code=303)
 
 
 @settings_bp.post("/reload")
@@ -175,11 +190,11 @@ def reload():
         new_cfg = load_or_bootstrap(paths.config_path())
     except ConfigError as exc:
         flash(f"{ui_filter('config_reload_failed')}: {exc}", "error")
-        return redirect(url_for("settings.index"), code=303)
+        return redirect(url_for("settings.section", section="config"), code=303)
     current_app.config["FLEXLOG"] = new_cfg
     current_app.config["FLEXLOG_LOADED_AT"] = datetime.now(timezone.utc)
     flash(ui_filter("config_reload_succeeded"), "success")
-    return redirect(url_for("settings.index"), code=303)
+    return redirect(url_for("settings.section", section="config"), code=303)
 
 
 @settings_bp.post("/change-password")
@@ -193,10 +208,10 @@ def change_password():
 
     if not new1 or len(new1) < _PASSWORD_MIN_LEN:
         flash(f"New password must be at least {_PASSWORD_MIN_LEN} characters.", "error")
-        return redirect(url_for("settings.index"), code=303)
+        return redirect(url_for("settings.section", section="security"), code=303)
     if new1 != new2:
         flash("New password and confirmation must match.", "error")
-        return redirect(url_for("settings.index"), code=303)
+        return redirect(url_for("settings.section", section="security"), code=303)
 
     kdf_path = paths.data_dir() / "kdf_params.json"
     kdf = load_kdf_params(kdf_path)
@@ -210,7 +225,7 @@ def change_password():
         unwrapped = aes_gcm_unwrap(old_kek, kdf.kek_nonce, kdf.wrapped_master_key)
     except InvalidPassword:
         flash("Current password is incorrect.", "error")
-        return redirect(url_for("settings.index"), code=303)
+        return redirect(url_for("settings.section", section="security"), code=303)
 
     # Constant-time compare (M2 from pentest). The previous `!=` was a
     # plain bytes compare that short-circuits on the first differing
@@ -219,7 +234,7 @@ def change_password():
     # constant-time and this should be too.
     if not hmac.compare_digest(unwrapped, current_app.config["MASTER_KEY"]):
         flash("Internal consistency error. Refusing to change password.", "error")
-        return redirect(url_for("settings.index"), code=303)
+        return redirect(url_for("settings.section", section="security"), code=303)
 
     # Re-wrap the SAME master key with a NEW KEK
     new_kek_salt = os.urandom(16)
@@ -241,7 +256,7 @@ def change_password():
     )
 
     flash("Password changed.", "success")
-    return redirect(url_for("settings.index"), code=303)
+    return redirect(url_for("settings.section", section="security"), code=303)
 
 
 @settings_bp.post("/ui_strings")
@@ -258,7 +273,7 @@ def save_ui_strings():
     result = _persist_and_swap(merged, errors_redir_tab="ui_strings")
     if result is not None:
         return result
-    return redirect(url_for("settings.index", tab="ui_strings"), code=303)
+    return redirect(url_for("settings.section", section="ui_strings"), code=303)
 
 
 @settings_bp.post("/limits")
@@ -282,7 +297,7 @@ def save_limits():
     result = _persist_and_swap(merged, errors_redir_tab="limits")
     if result is not None:
         return result
-    return redirect(url_for("settings.index", tab="limits"), code=303)
+    return redirect(url_for("settings.section", section="limits"), code=303)
 
 
 def _parse_ratings_form() -> tuple[list[dict], list[tuple[str, str]], list[str]]:
@@ -367,7 +382,7 @@ def save_ratings():
     result = _persist_and_swap(merged, errors_redir_tab="ratings")
     if result is not None:
         return result
-    return redirect(url_for("settings.index", tab="ratings"), code=303)
+    return redirect(url_for("settings.section", section="ratings"), code=303)
 
 
 @settings_bp.post("/raw")
@@ -390,4 +405,4 @@ def save_raw():
     result = _persist_and_swap(parsed, errors_redir_tab="raw")
     if result is not None:
         return result
-    return redirect(url_for("settings.index", tab="raw"), code=303)
+    return redirect(url_for("settings.section", section="raw"), code=303)

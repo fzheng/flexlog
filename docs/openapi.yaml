@@ -966,25 +966,58 @@ paths:
   /settings:
     get:
       tags: [settings]
-      summary: Settings UI (5 tabs + change-password).
+      summary: Settings root — redirects to /settings/app.
       operationId: settings.index
+      description: |
+        Bare /settings always 303-redirects to /settings/app (the
+        default section). For backwards compatibility with pre-v1.0.0
+        URLs of the shape /settings?tab=<x>, this endpoint honors the
+        `tab` query parameter and redirects to /settings/<x> when the
+        value is a known section; unknown values fall back to
+        /settings/app.
+      responses:
+        '303':
+          description: |
+            Redirect to /settings/app (default) or /settings/{section}
+            if a ?tab=<section> query was supplied. Backwards-compat
+            for pre-v1.0.0 ?tab= URLs.
+          headers:
+            Location:
+              schema:
+                type: string
+
+  /settings/{section}:
+    get:
+      tags: [settings]
+      summary: Render a specific settings section.
+      operationId: settings.section
+      description: |
+        Per-section page. Sidebar groups the 7 sections into "Application"
+        (app / ratings / ui_strings / limits / raw) and "System" (config /
+        security). All sections render the same shell template with the
+        section's partial injected on the right.
       parameters:
-        - name: tab
-          in: query
+        - name: section
+          in: path
+          required: true
+          description: Which section to render.
           schema:
             type: string
             enum: [app, ratings, ui_strings, limits, raw, config, security]
-            default: app
-          description: |
-            Which tab to render selected. The tabs share one URL and
-            differ only in which form is active. Tabs are grouped in
-            the UI into "Application" (app/ratings/ui_strings/limits/
-            raw — all config-driven) and "System" (config — data-dir
-            info + reload button; security — password change form).
-            Unknown values silently fall back to `app`.
       responses:
         '200':
-          $ref: '#/components/responses/HtmlPage'
+          description: HTML page with the requested section selected.
+          content:
+            text/html:
+              schema:
+                type: string
+        '303':
+          description: |
+            Unknown section value redirects to /settings/app.
+          headers:
+            Location:
+              schema:
+                type: string
 
   /settings/app:
     post:

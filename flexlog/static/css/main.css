@@ -1127,54 +1127,108 @@ h3 {
   border-bottom-color: var(--accent);
 }
 
-/* Settings tabs */
-.settings-tabs { display: flex; gap: 0; border-bottom: 1px solid #d1d5db; margin-bottom: 1rem; }
-.settings-tabs a { padding: 0.6rem 1rem; color: #4b5563; text-decoration: none; border-bottom: 2px solid transparent; }
-.settings-tabs a.active { color: #111; border-bottom-color: #2563eb; font-weight: 600; }
+/* Settings — two-column layout: vertical sidebar nav + content pane.
+   Grouped by section (Application / System) with sticky positioning
+   on the sidebar so it stays visible while scrolling a long tab. */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
 
-/* Grouped tabs: two visually-separated columns under labeled headers
-   ("Application" tabs for config-driven things, "System" tabs for
-   data-dir info + password change). */
-.settings-tabs-grouped {
+.settings-sidebar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0 2rem;
-  border-bottom: 1px solid #d1d5db;
-  margin-bottom: 1.25rem;
-  padding-bottom: 0;
-}
-.settings-tab-group {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-.settings-tab-group:not(:last-child) {
-  /* Vertical divider between groups; faint */
+  flex-direction: column;
+  gap: 1.5rem;
+  position: sticky;
+  top: 1rem;
+  align-self: start;
+  padding: 0.5rem 0;
   border-right: 1px solid var(--rule);
-  padding-right: 1.5rem;
-  margin-right: -0.5rem;
+  padding-right: 1rem;
 }
-.settings-tab-group-label {
+
+.settings-sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings-sidebar-group-label {
   font-family: var(--sans);
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: 0 0.5rem 0.85rem 0;
-  align-self: flex-end;
+  padding: 0 0.6rem 0.4rem 0.6rem;
 }
-.settings-tab-group a {
-  padding: 0.6rem 1rem;
-  color: #4b5563;
+
+.settings-sidebar-item {
+  display: block;
+  padding: 0.4rem 0.75rem;
+  color: #374151;
   text-decoration: none;
-  border-bottom: 2px solid transparent;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  line-height: 1.3;
+  border-left: 2px solid transparent;
+  transition: background-color 80ms ease, color 80ms ease, border-color 80ms ease;
 }
-.settings-tab-group a.active {
+
+.settings-sidebar-item:hover {
+  background: var(--bg-soft);
   color: #111;
-  border-bottom-color: #2563eb;
+}
+
+.settings-sidebar-item.active {
+  background: var(--bg-soft);
+  color: #111;
   font-weight: 600;
+  border-left-color: #2563eb;
+}
+
+.settings-content {
+  min-width: 0;  /* allow grid child to shrink for wide tables */
+}
+
+/* Mobile: stack vertically. Sidebar becomes a horizontal scroll strip. */
+@media (max-width: 720px) {
+  .settings-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .settings-sidebar {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    padding: 0 0 0.75rem 0;
+    gap: 1rem;
+  }
+  .settings-sidebar-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .settings-sidebar-group-label {
+    padding: 0;
+    margin-right: 0.4rem;
+    font-size: 0.65rem;
+  }
+  .settings-sidebar-item {
+    padding: 0.3rem 0.55rem;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 4px;
+  }
+  .settings-sidebar-item.active {
+    border-left: none;
+    border-bottom-color: #2563eb;
+  }
 }
 
 .settings-section { margin-top: 1.5rem; }

@@ -13,33 +13,33 @@
   </div>
   {% endif %}
 
-  {# Grouped two-row tab nav. Application group = the 5 config tabs.
-     System group = data-dir info + password change. #}
-  <nav class="settings-tabs settings-tabs-grouped">
-    <div class="settings-tab-group">
-      <span class="settings-tab-group-label">Application</span>
-      <a id="settings-tab-app" href="{{ url_for('settings.index', tab='app') }}" {% if tab == 'app' %}class="active"{% endif %}>App</a>
-      <a id="settings-tab-ratings" href="{{ url_for('settings.index', tab='ratings') }}" {% if tab == 'ratings' %}class="active"{% endif %}>Ratings</a>
-      <a id="settings-tab-ui_strings" href="{{ url_for('settings.index', tab='ui_strings') }}" {% if tab == 'ui_strings' %}class="active"{% endif %}>UI strings</a>
-      <a id="settings-tab-limits" href="{{ url_for('settings.index', tab='limits') }}" {% if tab == 'limits' %}class="active"{% endif %}>Limits</a>
-      <a id="settings-tab-raw" href="{{ url_for('settings.index', tab='raw') }}" {% if tab == 'raw' %}class="active"{% endif %}>Raw JSON</a>
-    </div>
-    <div class="settings-tab-group">
-      <span class="settings-tab-group-label">System</span>
-      <a id="settings-tab-config" href="{{ url_for('settings.index', tab='config') }}" {% if tab == 'config' %}class="active"{% endif %}>Config file</a>
-      <a id="settings-tab-security" href="{{ url_for('settings.index', tab='security') }}" {% if tab == 'security' %}class="active"{% endif %}>Security</a>
-    </div>
-  </nav>
+  <div class="settings-layout">
+    <nav class="settings-sidebar" aria-label="Settings sections">
+      <div class="settings-sidebar-group">
+        <div class="settings-sidebar-group-label">Application</div>
+        <a id="settings-tab-app" href="{{ url_for('settings.section', section='app') }}" class="settings-sidebar-item{% if tab == 'app' %} active{% endif %}">App</a>
+        <a id="settings-tab-ratings" href="{{ url_for('settings.section', section='ratings') }}" class="settings-sidebar-item{% if tab == 'ratings' %} active{% endif %}">Ratings</a>
+        <a id="settings-tab-ui_strings" href="{{ url_for('settings.section', section='ui_strings') }}" class="settings-sidebar-item{% if tab == 'ui_strings' %} active{% endif %}">UI strings</a>
+        <a id="settings-tab-limits" href="{{ url_for('settings.section', section='limits') }}" class="settings-sidebar-item{% if tab == 'limits' %} active{% endif %}">Limits</a>
+        <a id="settings-tab-raw" href="{{ url_for('settings.section', section='raw') }}" class="settings-sidebar-item{% if tab == 'raw' %} active{% endif %}">Raw JSON</a>
+      </div>
+      <div class="settings-sidebar-group">
+        <div class="settings-sidebar-group-label">System</div>
+        <a id="settings-tab-config" href="{{ url_for('settings.section', section='config') }}" class="settings-sidebar-item{% if tab == 'config' %} active{% endif %}">Config file</a>
+        <a id="settings-tab-security" href="{{ url_for('settings.section', section='security') }}" class="settings-sidebar-item{% if tab == 'security' %} active{% endif %}">Security</a>
+      </div>
+    </nav>
 
-  <div class="settings-tab-content">
-    {% if tab == 'app' %}{% include "settings/_app.html" %}
-    {% elif tab == 'ratings' %}{% include "settings/_ratings.html" %}
-    {% elif tab == 'ui_strings' %}{% include "settings/_ui_strings.html" %}
-    {% elif tab == 'limits' %}{% include "settings/_limits.html" %}
-    {% elif tab == 'raw' %}{% include "settings/_raw.html" %}
-    {% elif tab == 'config' %}{% include "settings/_config.html" %}
-    {% elif tab == 'security' %}{% include "settings/_security.html" %}
-    {% endif %}
+    <div class="settings-content">
+      {% if tab == 'app' %}{% include "settings/_app.html" %}
+      {% elif tab == 'ratings' %}{% include "settings/_ratings.html" %}
+      {% elif tab == 'ui_strings' %}{% include "settings/_ui_strings.html" %}
+      {% elif tab == 'limits' %}{% include "settings/_limits.html" %}
+      {% elif tab == 'raw' %}{% include "settings/_raw.html" %}
+      {% elif tab == 'config' %}{% include "settings/_config.html" %}
+      {% elif tab == 'security' %}{% include "settings/_security.html" %}
+      {% endif %}
+    </div>
   </div>
 </section>
 

@@ -14,8 +14,8 @@ def _write_config(data_dir, cfg: dict) -> None:
 
 def test_settings_page_renders(authed_client, tmp_data_dir):
     """The config-path display + reload button live under the Config
-    tab now (v0.9.x grouped settings menu)."""
-    resp = authed_client.get("/settings?tab=config")
+    section (v1.0.0 sidebar layout)."""
+    resp = authed_client.get("/settings/config")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
     assert "Reload now" in body
@@ -24,18 +24,47 @@ def test_settings_page_renders(authed_client, tmp_data_dir):
     assert 'method="post"' in body or 'method="POST"' in body
 
 
-def test_settings_default_tab_renders(authed_client):
-    """Default /settings (no tab=) renders the App tab + both group
-    sub-nav sections."""
+def test_settings_default_redirects_to_app(authed_client):
+    """Bare /settings 303-redirects to /settings/app."""
     resp = authed_client.get("/settings")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/settings/app")
+
+
+def test_settings_app_section_renders_sidebar_groups(authed_client):
+    """The App section page renders the sidebar with both group
+    headings and links to every other section."""
+    resp = authed_client.get("/settings/app")
     assert resp.status_code == 200
     body = resp.get_data(as_text=True)
-    # Group headers
+    # Both group headings present
     assert "Application" in body
     assert "System" in body
-    # Both new tab links present in the nav
+    # Sidebar tab anchors present
     assert "settings-tab-config" in body
     assert "settings-tab-security" in body
+
+
+def test_settings_tab_query_param_redirects_to_section(authed_client):
+    """Pre-v1.0.0 ?tab=<x> URLs continue to work by 303-redirecting
+    to /settings/<x>."""
+    resp = authed_client.get("/settings?tab=security")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/settings/security")
+
+
+def test_settings_invalid_tab_redirects_to_app(authed_client):
+    """Unknown ?tab= value 303s to /settings/app (the default)."""
+    resp = authed_client.get("/settings?tab=bogus")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/settings/app")
+
+
+def test_settings_invalid_section_redirects_to_app(authed_client):
+    """Unknown /settings/<section> path also 303s to /settings/app."""
+    resp = authed_client.get("/settings/bogus")
+    assert resp.status_code == 303
+    assert resp.headers["Location"].endswith("/settings/app")
 
 
 def test_reload_picks_up_new_label(authed_client, tmp_data_dir):

@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 
 
-def _csrf_token(client, path="/settings?tab=ratings"):
-    body = client.get(path).get_data(as_text=True)
+def _csrf_token(client, path="/settings/ratings"):
+    body = client.get(path, follow_redirects=True).get_data(as_text=True)
     m = re.search(r'name="csrf_token"\s+value="([^"]+)"', body)
     assert m is not None
     return m.group(1)
