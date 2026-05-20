@@ -118,3 +118,19 @@ class S3Storage:
                 raise S3StorageError(
                     f"delete {self._full_key(file_key)!r} failed: {e}"
                 ) from e
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        """Return all object keys under the given prefix (relative to
+        the storage's key_prefix). Sorted lexicographically."""
+        full_prefix = self._full_key(prefix)
+        keys = []
+        paginator = self._client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(
+            Bucket=self._bucket, Prefix=full_prefix
+        ):
+            for obj in page.get("Contents", []) or []:
+                key = obj["Key"]
+                # Strip our prefix so callers see logical keys
+                if key.startswith(self._prefix):
+                    keys.append(key[len(self._prefix):])
+        return sorted(keys)

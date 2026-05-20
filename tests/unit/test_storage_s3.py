@@ -106,3 +106,18 @@ def test_s3_get_range_on_missing_raises_clean_error(mocked_s3):
     storage = _make_storage()
     with pytest.raises((S3StorageError, Exception)):  # boto raises ClientError
         storage.get_range("nope.bin", 0, 9)
+
+
+def test_s3_list_keys_returns_sorted_logical_keys(mocked_s3, tmp_path):
+    storage = _make_storage(prefix="db/")
+    src = tmp_path / "x.bin"
+    src.write_bytes(b"x")
+    storage.put("db-2026-05-19T11-00-00Z.db", src)
+    storage.put("db-2026-05-19T10-00-00Z.db", src)
+    storage.put("db-2026-05-19T12-00-00Z.db", src)
+    keys = storage.list_keys()
+    assert keys == [
+        "db-2026-05-19T10-00-00Z.db",
+        "db-2026-05-19T11-00-00Z.db",
+        "db-2026-05-19T12-00-00Z.db",
+    ]
