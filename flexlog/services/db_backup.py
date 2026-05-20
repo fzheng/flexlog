@@ -166,3 +166,29 @@ def register_db_backup_worker(app, storage, db_path: Path) -> threading.Thread:
 def last_successful_backup_at() -> datetime.datetime | None:
     """Read by the status-bar context processor."""
     return _LAST_SUCCESS["at"]
+
+
+def restore_latest_if_missing(storage, db_path: Path) -> bool:
+    """If db_path doesn't exist AND a backup exists in storage,
+    download the latest backup to db_path. Returns True iff a
+    restore happened.
+
+    Used at app boot (`create_app`) when running with
+    FLEXLOG_STORAGE_BACKEND=s3 — handles the cold-start case
+    where Railway gave us a fresh Volume."""
+    if db_path.exists():
+        return False
+    latest_key = find_latest_backup(storage)
+    if latest_key is None:
+        return False
+    size = storage.get_size(latest_key)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with db_path.open("wb") as f:
+        CHUNK = 4 * 1024 * 1024  # 4 MiB
+        offset = 0
+        while offset < size:
+            end = min(offset + CHUNK - 1, size - 1)
+            f.write(storage.get_range(latest_key, offset, end))
+            offset = end + 1
+    logger.info("Restored DB from %s to %s", latest_key, db_path)
+    return True

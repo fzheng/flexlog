@@ -60,6 +60,26 @@ def create_app() -> Flask:
 
     _sweep_tmp_uploads()
 
+    # Cold-boot DB restore (Railway cloud deployment).
+    # When FLEXLOG_STORAGE_BACKEND=s3 and the Volume's DB is missing,
+    # pull the newest backup from the backup bucket so the app can
+    # start serving immediately.
+    _backup_storage = None
+    if os.environ.get("FLEXLOG_STORAGE_BACKEND") == "s3":
+        backup_bucket = os.environ.get("BACKUP_BUCKET")
+        if backup_bucket:
+            from flexlog.services.db_backup import restore_latest_if_missing
+            from flexlog.storage.s3 import S3Storage
+            _backup_storage = S3Storage(
+                bucket=backup_bucket,
+                endpoint_url=os.environ.get("BACKUP_ENDPOINT"),
+                region=os.environ.get("BACKUP_REGION", "auto"),
+                access_key=os.environ["BACKUP_ACCESS_KEY_ID"],
+                secret_key=os.environ["BACKUP_SECRET_ACCESS_KEY"],
+                key_prefix="media/",  # backup bucket uses media/ prefix for media + db/ for db
+            )
+            restore_latest_if_missing(_backup_storage, paths.db_path())
+
     config: Config = load_or_bootstrap(paths.config_path())
     loaded_at = datetime.now(timezone.utc)
     secret_key = load_or_create_secret_key(data_dir / ".secret_key")
@@ -207,6 +227,13 @@ def create_app() -> Flask:
     def _migration_failed(e: MigrationError):
         logging.getLogger(LOGGER_NAME).exception("schema migration failed")
         return _render_template("errors/migration_failed.html", error=str(e)), 500
+
+    # Spawn the DB backup worker thread (only if we wired the backup
+    # storage above). The worker waits on after_commit signals and
+    # uploads SQLite-backup snapshots to the backup bucket.
+    if _backup_storage is not None:
+        from flexlog.services.db_backup import register_db_backup_worker
+        register_db_backup_worker(app, _backup_storage, paths.db_path())
 
     return app
 
