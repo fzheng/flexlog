@@ -360,16 +360,26 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
                 pass
             return existing
 
-        # New file: ensure target directory, encrypt tmp → target.
+        # New file: encrypt tmp → enc_tmp, then hand to storage backend.
+        # Encrypting to a separate tmp first decouples the encryption
+        # pipeline from the storage destination (local FS / S3 / mirrored).
         master_key = current_app.config.get("MASTER_KEY")
         if master_key is None:
             raise MediaUploadError("master key not loaded; user must log in first")
 
         from flexlog.crypto import encrypt_file_to_path
+        from flexlog.storage import get_storage
 
-        target = paths.resolve_file_key(file_key)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        encrypt_file_to_path(tmp_path, target, master_key, file_sha=sha)
+        storage = get_storage()
+        enc_tmp = tmp_path.with_suffix(tmp_path.suffix + ".enc")
+        encrypt_file_to_path(tmp_path, enc_tmp, master_key, file_sha=sha)
+        try:
+            storage.put(file_key, enc_tmp)
+        finally:
+            try:
+                enc_tmp.unlink()
+            except FileNotFoundError:
+                pass
         try:
             tmp_path.unlink()
         except FileNotFoundError:
@@ -401,18 +411,18 @@ def upload_to_media_file(db: Session, fs: FileStorage) -> MediaFile:
                 # defending here turns a NoResultFound 500 into a clear retryable
                 # error.
                 try:
-                    target.unlink(missing_ok=True)
-                except OSError:
+                    storage.delete(file_key)
+                except Exception:
                     pass
                 raise MediaUploadError("upload dedup conflict; retry the upload")
             return existing
         except Exception:
             # I2: any other failure (disk full mid-flush, FK violation, etc.).
-            # The encrypted file at `target` is ours alone — clean it up so
+            # The encrypted file is ours alone — clean it up via storage so
             # we don't leak an orphan.
             try:
-                target.unlink(missing_ok=True)
-            except OSError:
+                storage.delete(file_key)
+            except Exception:
                 pass
             raise
         return new_row
@@ -486,11 +496,8 @@ def orphan_delete_media_file(db: Session, file_key: str) -> bool:
             or referenced_as_link_thumbnail is not None):
         return False
 
-    target = paths.resolve_file_key(mf.file_key)
-    try:
-        target.unlink(missing_ok=True)
-    except OSError:
-        pass
+    from flexlog.storage import get_storage
+    get_storage().delete(mf.file_key)
     db.delete(mf)
     db.flush()
     return True

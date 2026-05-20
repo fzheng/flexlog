@@ -40,10 +40,15 @@ def _guess_mime(file_key: str) -> str:
 @media_bp.get("/media/<path:file_key>")
 def serve(file_key: str):
     try:
-        target = paths.resolve_file_key(file_key)
+        # Validate the file_key shape (raises FileKeyError on traversal).
+        # Don't open the file directly — let the storage backend handle bytes.
+        paths.resolve_file_key(file_key)
     except FileKeyError:
         abort(404)
-    if not target.is_file():
+
+    from flexlog.storage import get_storage
+    storage = get_storage()
+    if not storage.exists(file_key):
         abort(404)
 
     master_key = current_app.config.get("MASTER_KEY")
@@ -53,9 +58,9 @@ def serve(file_key: str):
     file_sha = _file_sha_from_key(file_key)
     mime = _guess_mime(file_key)
 
-    # Read header to learn plaintext_size + chunk_size
-    with target.open("rb") as f:
-        header = parse_header(f.read(FILE_HEADER_SIZE))
+    # Read the 16-byte header to learn plaintext_size + chunk_size.
+    header_bytes = storage.get_range(file_key, 0, FILE_HEADER_SIZE - 1)
+    header = parse_header(header_bytes)
 
     range_header = request.headers.get("Range", "")
     if range_header:
@@ -79,27 +84,31 @@ def serve(file_key: str):
             })
         if end >= header.plaintext_size:
             end = header.plaintext_size - 1
-        return _range_response(target, header, master_key, file_sha, start, end, mime)
+        return _range_response(storage, file_key, header, master_key, file_sha, start, end, mime)
 
     # No Range: stream the whole thing as 200
-    return _full_response(target, header, master_key, file_sha, mime)
+    return _full_response(storage, file_key, header, master_key, file_sha, mime)
 
 
-def _full_response(target, header, master_key, file_sha, mime):
+def _full_response(storage, file_key, header, master_key, file_sha, mime):
     def gen():
         fek = derive_fek(master_key, file_sha)
         aead = AESGCM(fek)
-        with target.open("rb") as f:
-            f.seek(FILE_HEADER_SIZE)
-            for i in range(header.total_chunks):
-                if i == header.total_chunks - 1:
-                    remainder = header.plaintext_size - i * header.chunk_size
-                    enc_len = remainder + GCM_TAG_LEN
-                else:
-                    enc_len = header.chunk_size + GCM_TAG_LEN
-                ct = f.read(enc_len)
-                nonce = derive_chunk_nonce(master_key, file_sha, i)
-                yield aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
+        enc_chunk_full = header.chunk_size + GCM_TAG_LEN
+        for i in range(header.total_chunks):
+            if i == header.total_chunks - 1:
+                remainder = header.plaintext_size - i * header.chunk_size
+                enc_len = remainder + GCM_TAG_LEN
+            else:
+                enc_len = enc_chunk_full
+            chunk_offset_in_file = FILE_HEADER_SIZE + i * enc_chunk_full
+            ct = storage.get_range(
+                file_key,
+                chunk_offset_in_file,
+                chunk_offset_in_file + enc_len - 1,
+            )
+            nonce = derive_chunk_nonce(master_key, file_sha, i)
+            yield aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
 
     resp = Response(stream_with_context(gen()), mimetype=mime)
     resp.headers["Content-Length"] = str(header.plaintext_size)
@@ -107,7 +116,7 @@ def _full_response(target, header, master_key, file_sha, mime):
     return resp
 
 
-def _range_response(target, header, master_key, file_sha, start, end, mime):
+def _range_response(storage, file_key, header, master_key, file_sha, start, end, mime):
     cs = header.chunk_size
     first_chunk = start // cs
     last_chunk = end // cs
@@ -116,20 +125,23 @@ def _range_response(target, header, master_key, file_sha, start, end, mime):
     def gen():
         fek = derive_fek(master_key, file_sha)
         aead = AESGCM(fek)
-        with target.open("rb") as f:
-            f.seek(FILE_HEADER_SIZE + first_chunk * enc_chunk_full)
-            for i in range(first_chunk, last_chunk + 1):
-                if i == header.total_chunks - 1:
-                    remainder = header.plaintext_size - i * cs
-                    enc_len = remainder + GCM_TAG_LEN
-                else:
-                    enc_len = enc_chunk_full
-                ct = f.read(enc_len)
-                nonce = derive_chunk_nonce(master_key, file_sha, i)
-                pt = aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
-                lo = (start % cs) if i == first_chunk else 0
-                hi = ((end % cs) + 1) if i == last_chunk else len(pt)
-                yield pt[lo:hi]
+        for i in range(first_chunk, last_chunk + 1):
+            if i == header.total_chunks - 1:
+                remainder = header.plaintext_size - i * cs
+                enc_len = remainder + GCM_TAG_LEN
+            else:
+                enc_len = enc_chunk_full
+            chunk_offset_in_file = FILE_HEADER_SIZE + i * enc_chunk_full
+            ct = storage.get_range(
+                file_key,
+                chunk_offset_in_file,
+                chunk_offset_in_file + enc_len - 1,
+            )
+            nonce = derive_chunk_nonce(master_key, file_sha, i)
+            pt = aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
+            lo = (start % cs) if i == first_chunk else 0
+            hi = ((end % cs) + 1) if i == last_chunk else len(pt)
+            yield pt[lo:hi]
 
     resp = Response(stream_with_context(gen()), status=206, mimetype=mime)
     resp.headers["Content-Range"] = f"bytes {start}-{end}/{header.plaintext_size}"

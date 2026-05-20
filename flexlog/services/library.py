@@ -48,9 +48,13 @@ def _drain_pending_unlinks(session):
     pending = session.info.pop("pending_unlinks", None)
     if not pending:
         return
+    # Import inside the listener to avoid a module-level circular-import
+    # risk (storage may import db.models in future phases).
+    from flexlog.storage import get_storage
+    storage = get_storage()
     for file_key in pending:
         try:
-            paths.resolve_file_key(file_key).unlink(missing_ok=True)
+            storage.delete(file_key)
         except Exception as exc:
             # M1: was silently swallowed; now logged so accumulated
             # phantom files are diagnosable in production. Continue

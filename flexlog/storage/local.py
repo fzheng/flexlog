@@ -52,6 +52,6 @@ class LocalStorage:
 
     def delete(self, file_key: str) -> None:
         try:
-            self._path(file_key).unlink(missing_ok=True)
-        except OSError:
+            self._path(file_key).unlink()
+        except FileNotFoundError:
             pass
