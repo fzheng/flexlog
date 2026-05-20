@@ -267,7 +267,36 @@ The `app` fixture's `_bootstrap_encrypted_dir` does `Base.metadata.create_all(en
 2. If the query "looks sensitive" (password-shape / SSN / Luhn-valid CC via `looks_like_sensitive_info`) → redirect to `https://www.google.com/` (homepage, not search) so the typed string doesn't end up in Google's search logs.
 3. Otherwise → 303 to `https://www.google.com/search?q=<typed>` so the page acts like the real Google clone.
 
-The fake landing is UX cover, not a security primitive. There's no rate limiting; Argon2id KDF cost is the only brute-force defense. For hostile public exposure, this app needs a reverse proxy with rate limiting in front — or, more practically, Tailscale.
+The fake landing is UX cover, not a security primitive. Argon2id KDF cost is the primary brute-force defense; in cloud deployments, `FLEXLOG_RATE_LIMIT=1` enables Flask-Limiter (5/h/IP on POST /) on top — see "Auth hardening for public exposure" below.
+
+### Storage abstraction (v1.0.0)
+
+`flexlog/storage/` is the seam between business logic and the byte container. Three implementations:
+
+- `LocalStorage` — wraps the existing `paths.resolve_file_key()` filesystem layout. Default for `make run` and every test. `put()` uses tmp-then-`os.replace` for atomic writes (so a concurrent reader never sees partial encrypted bytes that would fail GCM tag verification).
+- `S3Storage` — boto3 against any S3-compatible endpoint (Railway Storage Buckets, AWS S3, MinIO). Sig-v4 client; takes a `key_prefix` so the same class can point at `uploads/` in the primary bucket and `media/` in the backup bucket. Exposes `list_keys(prefix)` (used by DB backup rotation).
+- `MirroredStorage` — wraps two backends with sync replication. Writes go to both (rollback primary if replica fails); reads from primary only. Used in production to mirror media into the backup bucket. Replica delete failures are logged but don't raise (orphan recoverable via `scripts/restore_media_from_backup.py`).
+
+Switch via `FLEXLOG_STORAGE_BACKEND` env (`local` default, `s3` for prod). When `s3` AND `BACKUP_BUCKET` is set, the factory returns a `MirroredStorage(primary, replica)`. Primary uses `BUCKET`/`ENDPOINT`/`REGION`/`ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`; replica uses the matching `BACKUP_*` set.
+
+The encryption layer (`crypto.py`, chunked AES-GCM) is unchanged — the storage backend just holds opaque encrypted bytes. Tests use moto's `mock_aws` so no real S3 calls are made.
+
+### DB backup worker (v1.0.0)
+
+`flexlog/services/db_backup.py` registers a SQLAlchemy `after_commit` listener that signals a module-level `threading.Event`. A daemon worker thread waits on the event, snapshots the DB via `sqlite3_backup` (consistent online backup — SQLCipher's pages are byte-equivalent), uploads to the backup bucket under `db/db-<ISO>.db`, and rotates to keep only the 30 newest. Multiple commits during one upload coalesce (the `Event.set()` is idempotent — by the time the worker wakes, it processes them as one).
+
+Cold-boot restore: `create_app()` checks if the Volume DB is missing and downloads the latest `db/db-*.db` from the backup bucket if so (chunked 4 MiB GETs). Handles the Railway fresh-Volume case + manual recovery after Volume loss.
+
+Status bar surfaces `last_backup_at` as a "Backup: Xs ago" chip when the worker is active. Hidden in local-storage mode.
+
+### Auth hardening for public exposure (v1.0.0)
+
+When deploying to Railway (or any public-internet host), set:
+
+- `FLEXLOG_BEHIND_TLS=1` — enables `werkzeug.ProxyFix(x_for=1, x_proto=1, x_host=1)` (Railway is a single proxy hop), forces `SESSION_COOKIE_SECURE=True`, and adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` to every response.
+- `FLEXLOG_RATE_LIMIT=1` — enables in-memory Flask-Limiter with `5 per hour` on `landing.submit` (POST /). Disabled by default; the test suite stays unaffected.
+
+Plus `/robots.txt` returns `Disallow: /` and the landing page has `<meta name="robots" content="noindex, nofollow">` — a leaked URL won't end up in search results.
 
 ### Status bar (v0.8.0)
 

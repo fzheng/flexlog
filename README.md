@@ -61,6 +61,40 @@ Save, visit `/settings`, click **Reload now** — the new labels appear
 across the dashboard, person detail, session form, and Media Library
 without restarting the app.
 
+## v1.0.0 — Cloud Deployment (Railway)
+
+flexlog is now deployable to [Railway](https://railway.com) as a
+single-user cloud journal, accessible from any browser.
+
+- **`flexlog/storage/` abstraction.** New `StorageBackend` protocol
+  with `LocalStorage` (dev / tests) and `S3Storage` (production)
+  implementations. `MirroredStorage` wraps two backends with sync
+  replication + rollback-on-failure semantics.
+- **Two-bucket redundancy.** Media files live in `flexlog-media`
+  (primary) and are sync-replicated to `flexlog-backups` (replica
+  + DB snapshots) for full data durability — losing one bucket is
+  fully recoverable from the other.
+- **Post-commit DB backups.** A background worker snapshots the
+  SQLCipher DB via `sqlite3_backup` on every commit, uploads to
+  `flexlog-backups` under `db/db-<ISO>.db`, and rotates to keep
+  only the 30 most recent. Cold-boot restore on container start
+  if the Volume's DB is missing.
+- **Auth hardened for public exposure.** Flask-Limiter (5/h/IP on
+  POST /), ProxyFix for Railway's single proxy hop, HSTS + Secure
+  cookies when `FLEXLOG_BEHIND_TLS=1`, noindex meta + /robots.txt.
+- **Docker + railway.json.** One-command deploy. Gunicorn in
+  single-worker mode (SQLCipher doesn't multi-process well) with
+  4 threads for concurrent reads.
+- **DR tooling.** `scripts/restore_media_from_backup.py` rebuilds
+  the primary bucket from the backup bucket in disaster scenarios.
+
+See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the Railway
+walkthrough. ~$5-6/month for a single-user deployment.
+
+For local development (no S3, no Volume), nothing changes — the
+default storage backend is still `LocalStorage` and `make run`
+works as before.
+
 ## v0.9.0 — OpenAPI Contract + Coverage Sweep + Pre-Release Fixes
 
 - **OpenAPI 3.0 spec.** `docs/openapi.yaml` documents every Flask
