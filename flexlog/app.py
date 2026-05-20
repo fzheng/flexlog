@@ -131,7 +131,8 @@ def create_app() -> Flask:
     app.jinja_env.filters["humanize_bytes"] = humanize_bytes_filter
     app.jinja_env.filters["iso_local_minute"] = iso_local_minute
 
-    from flexlog.web.filters import vendor_sri
+    from flexlog.web.filters import time_ago, vendor_sri
+    app.jinja_env.filters["time_ago"] = time_ago
     app.jinja_env.filters["vendor_sri"] = vendor_sri
 
     from flexlog.web.security_headers import register_security_headers

@@ -223,6 +223,28 @@ def iso_local_minute(value: Any) -> str:
     return value.strftime("%Y-%m-%d %H:%M")
 
 
+def time_ago(value) -> str:
+    """Format a datetime as 'X ago' (e.g. '32s ago', '2h ago').
+    Returns '' for None."""
+    if value is None:
+        return ""
+    import datetime as _dt
+    if not isinstance(value, _dt.datetime):
+        return ""
+    # Handle both naive and aware datetimes (db_backup uses UTC-aware
+    # via datetime.now(UTC); older code may be naive utcnow()).
+    now = _dt.datetime.now(_dt.timezone.utc) if value.tzinfo else _dt.datetime.utcnow()
+    delta = now - value
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
+
+
 def vendor_sri(static_path: str) -> str:
     """Jinja filter: return the integrity + crossorigin attribute
     fragment for a vendored static asset.

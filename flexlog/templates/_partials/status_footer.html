@@ -14,5 +14,11 @@
       No sessions yet
     {% endif %}
   </span>
+  {% if status_snapshot.last_backup_at %}
+  <span class="status-sep" aria-hidden="true">•</span>
+  <span class="status-backup">
+    Backup: {{ status_snapshot.last_backup_at | time_ago }}
+  </span>
+  {% endif %}
 </footer>
 {% endif %}

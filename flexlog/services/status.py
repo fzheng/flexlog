@@ -24,14 +24,17 @@ logger = logging.getLogger("flexlog.status")
 class StatusSnapshot:
     storage_bytes: int
     last_session_at: datetime | None
+    last_backup_at: datetime | None = None
 
 
 def compute_status(db: Session, data_dir: Path) -> StatusSnapshot:
     """One SQL query + one filesystem walk. Cheap enough to run on
     every page render for a single-user app."""
+    from flexlog.services.db_backup import last_successful_backup_at
     return StatusSnapshot(
         storage_bytes=_sum_dir_size(data_dir),
         last_session_at=_max_session_updated_at(db),
+        last_backup_at=last_successful_backup_at(),
     )
 
 
