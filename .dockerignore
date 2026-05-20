@@ -1,0 +1,33 @@
+# Source control
+.git/
+.gitignore
+
+# Local dev artifacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage*
+htmlcov/
+
+# Local data dir (NEVER ship into image)
+flexlog-data/
+/tmp/flexlog*
+
+# Tests + docs aren't needed in the runtime image
+tests/
+docs/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# CI / Make
+.installed
