@@ -9,6 +9,21 @@ from pathlib import Path
 import pytest
 
 
+# A deterministic 32-byte master key for tests. Production master keys are
+# random bytes from os.urandom; the value here just needs to be stable
+# across the test so source + dest DBs use the same passphrase.
+_TEST_MASTER_KEY = b"\xab" * 32
+
+
+def _sqlcipher_key_hex(master_key: bytes) -> str:
+    """Mirror the production derivation in landing_bp.py."""
+    from flexlog.crypto import hkdf_subkey
+    return hkdf_subkey(master_key, b"flexlog/sqlcipher/v1", 32).hex()
+
+
+_TEST_SQLCIPHER_KEY_HEX = _sqlcipher_key_hex(_TEST_MASTER_KEY)
+
+
 def _make_fake_storage():
     """Fake storage with put/delete and a key list for assertions."""
     class _Fake:
@@ -39,17 +54,26 @@ def _make_fake_storage():
     return _Fake()
 
 
-def _make_real_sqlite_db(path: Path) -> None:
-    """Create a real (tiny) SQLite DB at the given path so sqlite3
-    online backup can read it."""
-    import sqlite3 as _sqlite3
-    conn = _sqlite3.connect(str(path))
+def _make_encrypted_db(path: Path, key_hex: str) -> None:
+    """Create a real SQLCipher-encrypted DB at the given path with the
+    given hex key — exactly the shape the production worker has to
+    open."""
+    from sqlcipher3 import dbapi2 as sqlcipher
+    conn = sqlcipher.connect(str(path))
     try:
+        conn.execute(f"PRAGMA key = \"x'{key_hex}'\"")
         conn.execute("CREATE TABLE t (x INTEGER)")
         conn.execute("INSERT INTO t VALUES (1)")
         conn.commit()
     finally:
         conn.close()
+
+
+class _FakeApp:
+    """Minimal Flask-app stand-in for the worker. Only `.config.get(...)`
+    is used."""
+    def __init__(self, master_key=None):
+        self.config = {"MASTER_KEY": master_key} if master_key else {}
 
 
 def test_backup_now_uploads_with_iso_timestamp_key(tmp_path):
@@ -60,15 +84,44 @@ def test_backup_now_uploads_with_iso_timestamp_key(tmp_path):
 
     storage = _make_fake_storage()
     db_file = tmp_path / "encounters.db"
-    _make_real_sqlite_db(db_file)
+    _make_encrypted_db(db_file, _TEST_SQLCIPHER_KEY_HEX)
 
-    backup_now(storage, db_file)
+    backup_now(storage, db_file, _TEST_SQLCIPHER_KEY_HEX)
     keys = storage.list_keys()
     assert len(keys) == 1
     assert re.match(
         r"^db/db-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.db$",
         keys[0],
     ), f"unexpected key shape: {keys[0]}"
+
+
+def test_backup_now_produces_decryptable_snapshot(tmp_path):
+    """Regression for the original deploy failure: backup_now must
+    produce a file the SAME SQLCipher key can open. Plain sqlite3
+    silently returned "file is not a database" on real SQLCipher
+    inputs."""
+    from sqlcipher3 import dbapi2 as sqlcipher
+    from flexlog.services.db_backup import backup_now
+
+    storage = _make_fake_storage()
+    db_file = tmp_path / "encounters.db"
+    _make_encrypted_db(db_file, _TEST_SQLCIPHER_KEY_HEX)
+    backup_now(storage, db_file, _TEST_SQLCIPHER_KEY_HEX)
+
+    # Materialize the uploaded bytes back to disk and try to open them
+    # with the same key. If the backup is corrupt or written as
+    # plaintext, this raises.
+    key = storage.list_keys()[0]
+    restored = tmp_path / "restored.db"
+    restored.write_bytes(storage._objects[key])
+
+    conn = sqlcipher.connect(str(restored))
+    try:
+        conn.execute(f"PRAGMA key = \"x'{_TEST_SQLCIPHER_KEY_HEX}'\"")
+        rows = list(conn.execute("SELECT x FROM t"))
+        assert rows == [(1,)]
+    finally:
+        conn.close()
 
 
 def test_backup_now_rotates_keeping_last_30(tmp_path, monkeypatch):
@@ -85,9 +138,9 @@ def test_backup_now_rotates_keeping_last_30(tmp_path, monkeypatch):
 
     storage = _make_fake_storage()
     db_file = tmp_path / "encounters.db"
-    _make_real_sqlite_db(db_file)
+    _make_encrypted_db(db_file, _TEST_SQLCIPHER_KEY_HEX)
     for _ in range(35):
-        db_backup.backup_now(storage, db_file)
+        db_backup.backup_now(storage, db_file, _TEST_SQLCIPHER_KEY_HEX)
     keys = storage.list_keys(prefix="db/")
     assert len(keys) == 30
     assert len(storage.delete_calls) == 5
@@ -99,7 +152,6 @@ def test_find_latest_backup_returns_most_recent_key(tmp_path):
     from flexlog.services.db_backup import find_latest_backup
 
     storage = _make_fake_storage()
-    # Plant backups out of order
     for k in [
         "db/db-2026-05-19T10-00-00Z.db",
         "db/db-2026-05-19T12-00-00Z.db",
@@ -116,6 +168,37 @@ def test_find_latest_backup_returns_none_when_empty(tmp_path):
     assert find_latest_backup(storage) is None
 
 
+def test_worker_skips_backup_when_master_key_missing(tmp_path):
+    """When the user is logged out (no MASTER_KEY in app.config),
+    the worker consumes the signal without backing up — the post-
+    login next-commit will re-arm. This prevents repeated 'file is
+    not a database' failures we observed before the SQLCipher fix."""
+    from flexlog.services import db_backup
+    from flexlog.services.db_backup import (
+        _BACKUP_NEEDED, _spawn_worker_for_test,
+    )
+
+    storage = _make_fake_storage()
+    db_file = tmp_path / "encounters.db"
+    _make_encrypted_db(db_file, _TEST_SQLCIPHER_KEY_HEX)
+
+    fake_app = _FakeApp(master_key=None)  # logged out
+    stop = threading.Event()
+    _spawn_worker_for_test(fake_app, storage, db_file, stop)
+
+    _BACKUP_NEEDED.set()
+    time.sleep(0.1)
+    stop.set()
+    _BACKUP_NEEDED.set()  # wake the worker so it can exit
+
+    assert storage.put_calls == [], (
+        "expected no backups (logged out); got "
+        f"{storage.put_calls}"
+    )
+    _BACKUP_NEEDED.clear()
+    db_backup._LAST_SUCCESS["at"] = None
+
+
 def test_worker_coalesces_multiple_signals(tmp_path):
     """If the after_commit fires 10 times while one upload is in flight,
     we get ONE additional upload (not 10) once the in-flight completes.
@@ -130,10 +213,10 @@ def test_worker_coalesces_multiple_signals(tmp_path):
 
     storage = _make_fake_storage()
     db_file = tmp_path / "encounters.db"
-    _make_real_sqlite_db(db_file)
+    _make_encrypted_db(db_file, _TEST_SQLCIPHER_KEY_HEX)
 
-    # Make put() slow so the worker is still uploading while we
-    # fire the remaining signals.
+    # Slow put() so the worker is still uploading while we fire the
+    # remaining signals.
     original_put = storage.put
 
     def slow_put(key, src):
@@ -142,30 +225,22 @@ def test_worker_coalesces_multiple_signals(tmp_path):
 
     storage.put = slow_put
 
-    # Spawn the worker
+    fake_app = _FakeApp(master_key=_TEST_MASTER_KEY)
     stop = threading.Event()
-    _spawn_worker_for_test(storage, db_file, stop)
+    _spawn_worker_for_test(fake_app, storage, db_file, stop)
 
-    # Signal many times in quick succession (all 10 land while the
-    # first slow put is in flight)
     for _ in range(10):
         _BACKUP_NEEDED.set()
         time.sleep(0.005)
 
-    # Wait long enough for the in-flight upload + one coalesced
-    # follow-up to complete.
     time.sleep(0.6)
     stop.set()
     _BACKUP_NEEDED.set()  # wake the worker so it can exit
 
-    # Should have at most 2 uploads: one for the first signal, one
-    # coalescing all the rest. (Could be 1 if all signals landed
-    # before the worker's first wake.)
     assert 1 <= len(storage.put_calls) <= 2, (
         f"expected 1-2 put calls (coalescing), got "
         f"{len(storage.put_calls)}"
     )
 
-    # Cleanup module-level state so later tests start clean
     _BACKUP_NEEDED.clear()
     db_backup._LAST_SUCCESS["at"] = None

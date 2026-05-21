@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime
 import logging
-import sqlite3
 import tempfile
 import threading
 from pathlib import Path
@@ -42,31 +41,42 @@ def _backup_key() -> str:
     return f"{_DB_BACKUP_PREFIX}db-{_iso_now()}.db"
 
 
-def _sqlite3_backup_to_tmp(db_path: Path) -> Path:
-    """Use SQLite's online backup API to produce a consistent snapshot
-    in a tmp file. Returns the tmp file path."""
-    # NOTE: SQLCipher uses a separate sqlcipher3 module, but online
-    # backup is exposed through the standard sqlite3 API for any
-    # SQLite-derived library. SQLCipher's pages are already
-    # encrypted; the backup is byte-equivalent encrypted pages.
+def _sqlcipher_backup_to_tmp(db_path: Path, sqlcipher_key_hex: str) -> Path:
+    """Use SQLCipher's online backup API to produce a consistent
+    snapshot. Both source and destination are SQLCipher-encrypted
+    with the same key — the backup file on disk is encrypted bytes
+    ready to upload to S3.
+
+    Earlier versions of this function used the standard library
+    sqlite3 module, but it cannot open a SQLCipher-encrypted DB
+    (the file header itself is encrypted), so backups silently
+    failed in production with "file is not a database"."""
+    from sqlcipher3 import dbapi2 as sqlcipher
+
     tmp = Path(tempfile.NamedTemporaryFile(
         suffix=".db", prefix="flexlog-backup-", delete=False
     ).name)
-    src = sqlite3.connect(str(db_path))
-    dst = sqlite3.connect(str(tmp))
+    src = sqlcipher.connect(str(db_path))
+    dst = sqlcipher.connect(str(tmp))
     try:
-        src.backup(dst)  # sqlite3_backup_init/step/finish
+        # PRAGMA key must run before any other statement on each
+        # connection. Same key for source + destination so the
+        # backup file is encrypted under the same passphrase as
+        # the live DB.
+        src.execute(f"PRAGMA key = \"x'{sqlcipher_key_hex}'\"")
+        dst.execute(f"PRAGMA key = \"x'{sqlcipher_key_hex}'\"")
+        src.backup(dst)
     finally:
         dst.close()
         src.close()
     return tmp
 
 
-def backup_now(storage, db_path: Path) -> str:
+def backup_now(storage, db_path: Path, sqlcipher_key_hex: str) -> str:
     """Synchronous one-shot backup: snapshot → upload → rotate.
     Returns the key that was uploaded. Used by the worker AND by
     tests + a future 'Backup now' button."""
-    tmp = _sqlite3_backup_to_tmp(db_path)
+    tmp = _sqlcipher_backup_to_tmp(db_path, sqlcipher_key_hex)
     try:
         key = _backup_key()
         storage.put(key, tmp)
@@ -108,7 +118,18 @@ def find_latest_backup(storage) -> str | None:
     return keys[-1] if keys else None
 
 
-def _worker_loop(storage, db_path: Path, stop_event: threading.Event):
+def _worker_loop(
+    app, storage, db_path: Path, stop_event: threading.Event,
+):
+    """Wait for a commit signal, fetch the current master key from
+    the app config (only present after login), derive the SQLCipher
+    passphrase, snapshot + upload.
+
+    If the user is logged out (no MASTER_KEY in app.config), the
+    signal is consumed silently — there's nothing to back up that
+    we can read anyway. Next post-login commit re-arms the signal."""
+    from flexlog.crypto import hkdf_subkey
+
     while not stop_event.is_set():
         _BACKUP_NEEDED.wait()
         _BACKUP_NEEDED.clear()
@@ -116,7 +137,14 @@ def _worker_loop(storage, db_path: Path, stop_event: threading.Event):
             break
         with _WORKER_LOCK:
             try:
-                backup_now(storage, db_path)
+                master_key = app.config.get("MASTER_KEY") if app else None
+                if not master_key:
+                    # Logged out → nothing to back up; wait for next commit.
+                    continue
+                sqlcipher_key_hex = hkdf_subkey(
+                    master_key, b"flexlog/sqlcipher/v1", 32,
+                ).hex()
+                backup_now(storage, db_path, sqlcipher_key_hex)
             except Exception:
                 logger.warning("DB backup failed", exc_info=True)
                 _BACKUP_NEEDED.set()  # retry next cycle
@@ -124,12 +152,16 @@ def _worker_loop(storage, db_path: Path, stop_event: threading.Event):
                     break
 
 
-def _spawn_worker_for_test(storage, db_path: Path, stop_event: threading.Event):
+def _spawn_worker_for_test(
+    app, storage, db_path: Path, stop_event: threading.Event,
+):
     """Test-only helper: spawn the worker thread directly without
-    requiring an SQLAlchemy session. Returns the started Thread."""
+    requiring an SQLAlchemy session. `app` is a Flask-app-like object
+    with a `config` dict containing MASTER_KEY (the test can pass a
+    real Flask app, a Mock, or any object exposing .config.get)."""
     t = threading.Thread(
         target=_worker_loop,
-        args=(storage, db_path, stop_event),
+        args=(app, storage, db_path, stop_event),
         name="db-backup-worker-test",
         daemon=True,
     )
@@ -142,7 +174,9 @@ def register_db_backup_worker(app, storage, db_path: Path) -> threading.Thread:
     started Thread (caller should keep a reference or rely on daemon=True).
 
     Idempotent at the listener level — SQLAlchemy de-duplicates
-    listeners by (target, identifier, func)."""
+    listeners by (target, identifier, func). The worker captures
+    `app` so it can read app.config["MASTER_KEY"] at backup time
+    (the key is only present post-login)."""
     from sqlalchemy import event
     from sqlalchemy.orm import Session
 
@@ -155,7 +189,7 @@ def register_db_backup_worker(app, storage, db_path: Path) -> threading.Thread:
 
     t = threading.Thread(
         target=_worker_loop,
-        args=(storage, db_path, stop_event),
+        args=(app, storage, db_path, stop_event),
         name="db-backup-worker",
         daemon=True,
     )
