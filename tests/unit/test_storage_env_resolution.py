@@ -44,6 +44,20 @@ def test_resolves_bucket_under_BUCKET_NAME_alias(monkeypatch):
     assert isinstance(storage, S3Storage)
 
 
+def test_resolves_full_railway_aws_naming_set(monkeypatch):
+    """Real-world Railway env-var set (May 2026): all 5 bucket vars
+    use the AWS_-prefixed names. This is the exact shape that broke
+    in production."""
+    monkeypatch.setenv("AWS_S3_BUCKET_NAME", "my-bucket")
+    monkeypatch.setenv("AWS_ENDPOINT_URL", "https://storage.railway.app")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
+    from flexlog.storage import get_storage
+    from flexlog.storage.s3 import S3Storage
+    assert isinstance(get_storage(), S3Storage)
+
+
 def test_resolves_credentials_under_AWS_aliases(monkeypatch):
     """AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are also accepted."""
     _set_primary(monkeypatch, "BUCKET", "AWS_ACCESS_KEY_ID",

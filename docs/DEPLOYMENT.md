@@ -44,17 +44,16 @@ In the project canvas:
    `BACKUP_`** so the names become `BACKUP_BUCKET`, `BACKUP_ENDPOINT`,
    `BACKUP_REGION`, `BACKUP_ACCESS_KEY_ID`, `BACKUP_SECRET_ACCESS_KEY`.
 
-> **Note on env-var names.** Railway's bucket linking has used several
-> naming schemes over time. The app accepts any of these for the
-> primary bucket: `BUCKET` / `BUCKET_NAME` / `S3_BUCKET`, plus the
-> matching `ACCESS_KEY_ID` / `AWS_ACCESS_KEY_ID`,
-> `SECRET_ACCESS_KEY` / `AWS_SECRET_ACCESS_KEY`,
-> `ENDPOINT` / `S3_ENDPOINT` / `ENDPOINT_URL`,
-> `REGION` / `AWS_DEFAULT_REGION` / `AWS_REGION`. Same names with a
-> `BACKUP_` prefix for the replica. If Railway's auto-injected name
-> for your bucket is something else entirely, the app's first media
-> upload will fail with a clear error in the logs listing what was
-> tried — rename one of the env vars in the Variables tab to match.
+> **Note on env-var names.** Railway's bucket-link templates use the
+> AWS-style names by default (`AWS_S3_BUCKET_NAME`, `AWS_ENDPOINT_URL`,
+> `AWS_DEFAULT_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`).
+> The app accepts those, plus a few other historical aliases
+> (`BUCKET` / `BUCKET_NAME` / `S3_BUCKET`, `ENDPOINT` / `S3_ENDPOINT` /
+> `ENDPOINT_URL`, `REGION` / `AWS_REGION`, etc.). For the replica,
+> prefix the same name with `BACKUP_` (e.g. `BACKUP_AWS_S3_BUCKET_NAME`,
+> `BACKUP_AWS_SECRET_ACCESS_KEY` — note **all five** are required;
+> a partially-configured replica fails at boot with a clear log message
+> listing the missing var).
 
 ### 4. Set the app-controlled env vars
 

@@ -8,8 +8,8 @@ S3 mode env-var resolution: Railway's auto-injected names for a
 linked Storage Bucket vary across plans/regions. We accept any of
 the well-known aliases so a user doesn't have to rename things.
 
-  Bucket name:    BUCKET   | BUCKET_NAME | S3_BUCKET
-  Endpoint URL:   ENDPOINT | S3_ENDPOINT | ENDPOINT_URL
+  Bucket name:    BUCKET   | BUCKET_NAME | S3_BUCKET | AWS_S3_BUCKET_NAME
+  Endpoint URL:   ENDPOINT | S3_ENDPOINT | ENDPOINT_URL | AWS_ENDPOINT_URL
   Region:         REGION   | AWS_DEFAULT_REGION | AWS_REGION
   Access key id:  ACCESS_KEY_ID | AWS_ACCESS_KEY_ID
   Secret key:     SECRET_ACCESS_KEY | AWS_SECRET_ACCESS_KEY
@@ -32,8 +32,8 @@ from flexlog.storage.local import LocalStorage
 __all__ = ["StorageBackend", "LocalStorage", "get_storage"]
 
 
-_BUCKET_ALIASES = ("BUCKET", "BUCKET_NAME", "S3_BUCKET")
-_ENDPOINT_ALIASES = ("ENDPOINT", "S3_ENDPOINT", "ENDPOINT_URL")
+_BUCKET_ALIASES = ("BUCKET", "BUCKET_NAME", "S3_BUCKET", "AWS_S3_BUCKET_NAME")
+_ENDPOINT_ALIASES = ("ENDPOINT", "S3_ENDPOINT", "ENDPOINT_URL", "AWS_ENDPOINT_URL")
 _REGION_ALIASES = ("REGION", "AWS_DEFAULT_REGION", "AWS_REGION")
 _ACCESS_KEY_ALIASES = ("ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID")
 _SECRET_KEY_ALIASES = ("SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY")
