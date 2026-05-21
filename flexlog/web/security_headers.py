@@ -44,7 +44,12 @@ _CSP = (
     "connect-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
-    "form-action 'self'"
+    # form-action covers the entire redirect chain, not just the initial
+    # POST target. The fake-Google landing page intentionally 303-redirects
+    # non-password input to google.com/search, so we have to allow it
+    # explicitly here. Without google.com, the browser blocks the
+    # redirect with "Sending form data violates form-action 'self'."
+    "form-action 'self' https://www.google.com"
 )
 
 _PERMISSIONS_POLICY = (
