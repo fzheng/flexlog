@@ -7,15 +7,13 @@ slip through without protection.
 
 Header rationale, briefly:
 
-- CSP default-src 'self' blocks fetching arbitrary external
-  resources. script-src 'self' (no 'unsafe-inline') means even if
-  user input reaches the DOM, an attacker can't execute it as a
-  script. connect-src 'self' blocks exfiltration to attacker hosts
-  via XHR/fetch — the most important defense against a compromised
-  vendored JS file. img-src adds 'data:' for the avatar cropper's
-  data-URL preview; style-src keeps 'unsafe-inline' because some
-  templates use inline style="..." attributes (tracked for a future
-  CSS audit pass; not blocking here).
+- CSP — see the inline audit table above _CSP below for the
+  per-directive rationale and which feature each token serves.
+  Whenever you add a feature that loads anything from a non-self
+  origin (or uses a new URL scheme like blob:/filesystem:/etc.),
+  check the audit, update it, and update the matching directive
+  in the same commit. The CSP is enforced strictly — silent
+  blocking of legitimate features is the failure mode.
 - X-Frame-Options: DENY is a legacy backup for frame-ancestors 'none'.
 - X-Content-Type-Options: nosniff blocks browsers from MIME-sniffing
   a misdeclared response.
@@ -36,19 +34,64 @@ import os
 from flask import Flask, Response
 
 
+# CSP audit (every directive mapped to actual feature use, May 2026):
+#
+# default-src 'self'  → fallback for media-src, font-src, worker-src, etc.
+#   Used by: <audio src="/media/...">, <video src="/media/...">,
+#   system fonts (no external @font-face). All same-origin.
+#
+# script-src 'self'   → vendored JS (PhotoSwipe, Cropper.js, custom)
+#   under /static/. No inline <script>, no eval, no inline on*=
+#   handlers (tripwire test enforces). No CDN.
+#
+# img-src 'self' data: blob:
+#   - 'self'  → /media/<file_key>, /static/...
+#   - data:   → avatar cropper writes the cropped result as a
+#             data:image/jpeg;base64 URL into <img.src> for preview
+#             before form submit (avatar_cropper.js:64).
+#   - blob:   → avatar cropper feeds the SELECTED file into a hidden
+#             <img> via URL.createObjectURL(file) so Cropper.js can
+#             measure it (avatar_cropper.js:36). Without `blob:` the
+#             browser blocks this with "Loading the image 'blob:...'
+#             violates img-src 'self' data:".
+#
+# style-src 'self' 'unsafe-inline'
+#   'unsafe-inline' is kept because some templates use style="..."
+#   attributes (avatar cropper sizing, ARIA helpers, link-thumb
+#   placeholders). Tightening requires a CSS audit pass — not
+#   blocking. Note: 'unsafe-inline' on style is materially less
+#   dangerous than on script.
+#
+# connect-src 'self'
+#   /sessions/upload (XHR + fetch), /sessions/upload/<key> (DELETE),
+#   any future internal AJAX. No external API calls — the running
+#   app makes zero outbound HTTP (asserted by qa_checklist test).
+#
+# frame-ancestors 'none'  → flexlog cannot be embedded in an iframe
+#   from any origin. Prevents clickjacking.
+#
+# base-uri 'self'  → <base href="..."> can only point at our origin.
+#   Defense-in-depth against XSS injecting a <base> to relocate
+#   relative URLs to an attacker host.
+#
+# form-action 'self' https://www.google.com
+#   CSP form-action enforces the entire redirect chain. The fake-
+#   Google landing page POSTs to / and the handler 303s non-password
+#   queries to google.com/search?q=... — that off-site destination
+#   has to be allowlisted explicitly. Without it the browser blocks
+#   the redirect with "Sending form data violates form-action 'self'".
+#
+# Directives we DON'T set (fall back to default-src 'self'):
+#   object-src, media-src, worker-src, manifest-src, child-src — all
+#   fine as same-origin-only. font-src — fine, no external fonts.
 _CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: blob:; "
     "style-src 'self' 'unsafe-inline'; "
     "connect-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
-    # form-action covers the entire redirect chain, not just the initial
-    # POST target. The fake-Google landing page intentionally 303-redirects
-    # non-password input to google.com/search, so we have to allow it
-    # explicitly here. Without google.com, the browser blocks the
-    # redirect with "Sending form data violates form-action 'self'."
     "form-action 'self' https://www.google.com"
 )
 

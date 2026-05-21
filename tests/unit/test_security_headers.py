@@ -54,6 +54,33 @@ def test_csp_blocks_framing():
     assert "frame-ancestors 'none'" in csp
 
 
+def test_csp_img_src_allows_self_data_blob():
+    """img-src must allow:
+      - 'self'   for /media/<file_key> + /static/...
+      - data:    for the avatar cropper's dataURL preview after crop
+      - blob:    for the avatar cropper's URL.createObjectURL on the
+                 selected file (so Cropper.js can measure it before crop)
+    Regression test for the original deploy where blob: was missing
+    and the avatar cropper silently failed under CSP."""
+    from flexlog.web.security_headers import _SECURITY_HEADERS
+    csp = _SECURITY_HEADERS["Content-Security-Policy"]
+    parts = [p.strip() for p in csp.split(";")]
+    img_src = next((p for p in parts if p.startswith("img-src")), "")
+    assert img_src, "CSP missing img-src directive"
+    assert "'self'" in img_src
+    assert "data:" in img_src
+    assert "blob:" in img_src
+
+
+def test_csp_form_action_allows_google_for_fake_landing():
+    """form-action must allow https://www.google.com so the fake-Google
+    landing page's POST → 303 → google.com/search redirect works under
+    CSP (form-action enforces the entire redirect chain)."""
+    from flexlog.web.security_headers import _SECURITY_HEADERS
+    csp = _SECURITY_HEADERS["Content-Security-Policy"]
+    assert "form-action 'self' https://www.google.com" in csp
+
+
 def test_x_frame_options_deny():
     from flexlog.web.security_headers import _SECURITY_HEADERS
     assert _SECURITY_HEADERS["X-Frame-Options"] == "DENY"
