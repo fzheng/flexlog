@@ -63,20 +63,17 @@ def create_app() -> Flask:
     # Cold-boot DB restore (Railway cloud deployment).
     # When FLEXLOG_STORAGE_BACKEND=s3 and the Volume's DB is missing,
     # pull the newest backup from the backup bucket so the app can
-    # start serving immediately.
+    # start serving immediately. Reuses the alias-tolerant env-var
+    # resolution from flexlog.storage so the deployer doesn't have
+    # to rename Railway's auto-injected vars.
     _backup_storage = None
     if os.environ.get("FLEXLOG_STORAGE_BACKEND") == "s3":
-        backup_bucket = os.environ.get("BACKUP_BUCKET")
-        if backup_bucket:
+        from flexlog.storage import _first_env, _BUCKET_ALIASES
+        if _first_env(_BUCKET_ALIASES, prefix="BACKUP_"):
             from flexlog.services.db_backup import restore_latest_if_missing
-            from flexlog.storage.s3 import S3Storage
-            _backup_storage = S3Storage(
-                bucket=backup_bucket,
-                endpoint_url=os.environ.get("BACKUP_ENDPOINT"),
-                region=os.environ.get("BACKUP_REGION", "auto"),
-                access_key=os.environ["BACKUP_ACCESS_KEY_ID"],
-                secret_key=os.environ["BACKUP_SECRET_ACCESS_KEY"],
-                key_prefix="media/",  # backup bucket uses media/ prefix for media + db/ for db
+            from flexlog.storage import _build_s3_storage
+            _backup_storage = _build_s3_storage(
+                prefix="BACKUP_", key_prefix="media/",
             )
             restore_latest_if_missing(_backup_storage, paths.db_path())
 

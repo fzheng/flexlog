@@ -44,6 +44,18 @@ In the project canvas:
    `BACKUP_`** so the names become `BACKUP_BUCKET`, `BACKUP_ENDPOINT`,
    `BACKUP_REGION`, `BACKUP_ACCESS_KEY_ID`, `BACKUP_SECRET_ACCESS_KEY`.
 
+> **Note on env-var names.** Railway's bucket linking has used several
+> naming schemes over time. The app accepts any of these for the
+> primary bucket: `BUCKET` / `BUCKET_NAME` / `S3_BUCKET`, plus the
+> matching `ACCESS_KEY_ID` / `AWS_ACCESS_KEY_ID`,
+> `SECRET_ACCESS_KEY` / `AWS_SECRET_ACCESS_KEY`,
+> `ENDPOINT` / `S3_ENDPOINT` / `ENDPOINT_URL`,
+> `REGION` / `AWS_DEFAULT_REGION` / `AWS_REGION`. Same names with a
+> `BACKUP_` prefix for the replica. If Railway's auto-injected name
+> for your bucket is something else entirely, the app's first media
+> upload will fail with a clear error in the logs listing what was
+> tried — rename one of the env vars in the Variables tab to match.
+
 ### 4. Set the app-controlled env vars
 
 On the flexlog service → Variables:
