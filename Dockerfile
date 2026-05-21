@@ -41,11 +41,19 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
 # Shell form (NOT JSON array) so $PORT expands at runtime.
 # `exec` so SIGTERM reaches gunicorn directly (graceful shutdown).
 # 1 worker because SQLCipher + SQLite + multi-process don't mix;
-# 4 threads handles concurrent media reads for a single user.
+# 4 gthread threads handles concurrent media reads for a single user.
+# --timeout 1800: default 30s kills any request that takes longer,
+#   which means multi-hundred-MB uploads return 502. Bumped to 30 min
+#   so large media uploads (audio/video) complete. Note: Railway's
+#   edge proxy has its OWN request timeout (~few minutes) — uploads
+#   over ~500 MB may still 502 at the edge regardless of this setting.
+#   See docs/DEPLOYMENT.md for the "large file" guidance.
 CMD exec gunicorn \
     --bind "0.0.0.0:${PORT:-5050}" \
     --workers 1 \
     --threads 4 \
+    --worker-class gthread \
+    --timeout 1800 \
     --graceful-timeout 30 \
     --access-logfile - \
     --error-logfile - \

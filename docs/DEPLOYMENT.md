@@ -99,6 +99,37 @@ Once authed:
   contain `uploads/<aa>/<bb>/<sha>.jpg`. `flexlog-backups` should
   contain `media/<aa>/<bb>/<sha>.jpg` AND `db/db-<iso>.db`.
 
+## Large file uploads (audio / video)
+
+Single-request POST uploads over Railway are bounded by **three**
+independent limits stacked on top of each other:
+
+1. **Your home upload speed.** A 2.7 GB POST at 10 Mbps takes ~36
+   min; at 100 Mbps fiber, ~3.5 min. Most cable connections are
+   nowhere near 100 Mbps up.
+2. **Railway's edge proxy timeout.** Around 5 minutes per HTTP
+   request. After that, the edge returns 502 regardless of what
+   your gunicorn worker is doing.
+3. **Gunicorn `--timeout`.** Now set to 30 min in our Dockerfile,
+   so the worker itself won't time out under #2.
+
+**Practical guidance:**
+
+- **< 100 MB:** uploads reliably on most connections.
+- **100–500 MB:** works on fast home upload; slow connections will
+  hit Railway's edge timeout.
+- **\> 500 MB:** unreliable on Railway via the single-POST upload
+  path. The right answer depends on what you're storing:
+  - Short voice memos / 1080p clips of an interview → keep in flexlog,
+    accept occasional retries.
+  - Multi-GB raw recordings → store externally (YouTube unlisted,
+    Vimeo private, S3 direct) and paste a link instead. The link's
+    thumbnail (a screenshot you paste) IS supported and doesn't
+    have the size problem.
+
+flexlog accepts up to 3 GB in Flask's `MAX_CONTENT_LENGTH` config —
+it's not the gatekeeper here, the edge is.
+
 ## Backup retention
 
 DB backups rotate automatically — last 30 are kept. Media files are
