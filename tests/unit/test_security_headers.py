@@ -64,9 +64,12 @@ def test_x_content_type_options_nosniff():
     assert _SECURITY_HEADERS["X-Content-Type-Options"] == "nosniff"
 
 
-def test_referrer_policy_no_referrer():
+def test_referrer_policy_same_origin():
+    """Referrer-Policy is "same-origin" (not "no-referrer") so Flask-WTF's
+    strict-HTTPS CSRF check can validate the Referer on same-origin form
+    POSTs. External navigations still get no Referer (the privacy goal)."""
     from flexlog.web.security_headers import _SECURITY_HEADERS
-    assert _SECURITY_HEADERS["Referrer-Policy"] == "no-referrer"
+    assert _SECURITY_HEADERS["Referrer-Policy"] == "same-origin"
 
 
 def test_permissions_policy_denies_hardware():
