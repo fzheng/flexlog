@@ -64,7 +64,6 @@ On the flexlog service → Variables:
 | `FLEXLOG_DATA_DIR` | `/app/data` |
 | `FLEXLOG_STORAGE_BACKEND` | `s3` |
 | `FLEXLOG_BEHIND_TLS` | `1` |
-| `FLEXLOG_RATE_LIMIT` | `1` |
 
 Railway auto-injects `PORT`. The bucket credentials are already
 present from the linking in step 3.

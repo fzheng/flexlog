@@ -9,7 +9,6 @@ description = "Local-only single-user 1v1 session journal"
 requires-python = ">=3.11"
 dependencies = [
     "Flask>=3.0,<4.0",
-    "Flask-Limiter>=3.5,<4",
     "SQLAlchemy>=2.0,<3.0",
     # Explicit greenlet: SQLAlchemy declares greenlet>=1 as a conditional
     # transitive (only on x86_64/aarch64/etc, not on macOS arm64). When

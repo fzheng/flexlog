@@ -21,9 +21,12 @@ single-user cloud journal, accessible from any browser.
   `flexlog-backups` under `db/db-<ISO>.db`, and rotates to keep
   only the 30 most recent. Cold-boot restore on container start
   if the Volume's DB is missing.
-- **Auth hardened for public exposure.** Flask-Limiter (5/h/IP on
-  POST /), ProxyFix for Railway's single proxy hop, HSTS + Secure
-  cookies when `FLEXLOG_BEHIND_TLS=1`, noindex meta + /robots.txt.
+- **Auth hardened for public exposure.** ProxyFix for Railway's
+  single proxy hop, HSTS + Secure cookies when `FLEXLOG_BEHIND_TLS=1`,
+  noindex meta + /robots.txt. Argon2id KDF cost (~500ms per attempt)
+  is the brute-force defense; no application-level rate limiting
+  (single-user app + the KDF cost makes additional rate limiting
+  more pain than protection).
 - **Docker + railway.json.** One-command deploy. Gunicorn in
   single-worker mode (SQLCipher doesn't multi-process well) with
   4 threads for concurrent reads.
