@@ -90,61 +90,89 @@ def serve(file_key: str):
     return _full_response(storage, file_key, header, master_key, file_sha, mime)
 
 
-def _full_response(storage, file_key, header, master_key, file_sha, mime):
-    def gen():
-        fek = derive_fek(master_key, file_sha)
-        aead = AESGCM(fek)
-        enc_chunk_full = header.chunk_size + GCM_TAG_LEN
-        for i in range(header.total_chunks):
-            if i == header.total_chunks - 1:
-                remainder = header.plaintext_size - i * header.chunk_size
-                enc_len = remainder + GCM_TAG_LEN
-            else:
-                enc_len = enc_chunk_full
-            chunk_offset_in_file = FILE_HEADER_SIZE + i * enc_chunk_full
-            ct = storage.get_range(
-                file_key,
-                chunk_offset_in_file,
-                chunk_offset_in_file + enc_len - 1,
-            )
-            nonce = derive_chunk_nonce(master_key, file_sha, i)
-            yield aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
+# Max encrypted bytes fetched per storage.get_range call. Tuning trade-off:
+# bigger = fewer S3 round trips per Range request (smoother video), but
+# more memory held by the worker. 8 MiB covers most browser Range requests
+# (typically 1-4 MiB) in a single GET, while capping memory growth for
+# unusual large-Range requests (e.g., player asking for bytes=0- on a
+# 2 GB video — we'd batch through it 8 MiB at a time instead of holding
+# all 2 GB resident).
+_BATCH_BYTES = 8 * 1024 * 1024
+_CACHE_CONTROL = "private, max-age=31536000, immutable"
 
-    resp = Response(stream_with_context(gen()), mimetype=mime)
+
+def _stream_range(storage, file_key, header, master_key, file_sha,
+                  start: int, end: int):
+    """Generator: yield plaintext bytes covering [start, end] inclusive.
+
+    Coalesces what would otherwise be one storage.get_range call per
+    encrypted chunk into batched fetches of up to _BATCH_BYTES. For a
+    typical 1-4 MiB browser Range request, this is a SINGLE S3 GET
+    instead of 16-64 sequential ones — the difference between smooth
+    video playback and stuttering.
+    """
+    cs = header.chunk_size
+    enc_chunk_full = cs + GCM_TAG_LEN
+    first_chunk = start // cs
+    last_chunk = end // cs
+    last_is_tail = (last_chunk == header.total_chunks - 1)
+    if last_is_tail:
+        last_enc_len = (header.plaintext_size - last_chunk * cs) + GCM_TAG_LEN
+    else:
+        last_enc_len = enc_chunk_full
+    first_offset = FILE_HEADER_SIZE + first_chunk * enc_chunk_full
+    last_byte = (
+        FILE_HEADER_SIZE + last_chunk * enc_chunk_full + last_enc_len - 1
+    )
+
+    fek = derive_fek(master_key, file_sha)
+    aead = AESGCM(fek)
+
+    buf = bytearray()
+    chunk_idx = first_chunk
+    pos = first_offset
+    while chunk_idx <= last_chunk:
+        # Refill the buffer if we don't have enough bytes for the next
+        # full chunk.
+        if chunk_idx == header.total_chunks - 1:
+            need = (header.plaintext_size - chunk_idx * cs) + GCM_TAG_LEN
+        else:
+            need = enc_chunk_full
+        if len(buf) < need and pos <= last_byte:
+            batch_end = min(pos + _BATCH_BYTES - 1, last_byte)
+            buf += storage.get_range(file_key, pos, batch_end)
+            pos = batch_end + 1
+            continue  # re-check after fill
+        ct = bytes(buf[:need])
+        del buf[:need]
+        nonce = derive_chunk_nonce(master_key, file_sha, chunk_idx)
+        pt = aead.decrypt(nonce, ct, chunk_idx.to_bytes(4, "big"))
+        lo = (start % cs) if chunk_idx == first_chunk else 0
+        hi = ((end % cs) + 1) if chunk_idx == last_chunk else len(pt)
+        yield pt[lo:hi]
+        chunk_idx += 1
+
+
+def _full_response(storage, file_key, header, master_key, file_sha, mime):
+    gen = _stream_range(
+        storage, file_key, header, master_key, file_sha,
+        start=0, end=header.plaintext_size - 1,
+    )
+    resp = Response(stream_with_context(gen), mimetype=mime)
     resp.headers["Content-Length"] = str(header.plaintext_size)
     resp.headers["Accept-Ranges"] = "bytes"
+    resp.headers["Cache-Control"] = _CACHE_CONTROL
     return resp
 
 
-def _range_response(storage, file_key, header, master_key, file_sha, start, end, mime):
-    cs = header.chunk_size
-    first_chunk = start // cs
-    last_chunk = end // cs
-    enc_chunk_full = cs + GCM_TAG_LEN
-
-    def gen():
-        fek = derive_fek(master_key, file_sha)
-        aead = AESGCM(fek)
-        for i in range(first_chunk, last_chunk + 1):
-            if i == header.total_chunks - 1:
-                remainder = header.plaintext_size - i * cs
-                enc_len = remainder + GCM_TAG_LEN
-            else:
-                enc_len = enc_chunk_full
-            chunk_offset_in_file = FILE_HEADER_SIZE + i * enc_chunk_full
-            ct = storage.get_range(
-                file_key,
-                chunk_offset_in_file,
-                chunk_offset_in_file + enc_len - 1,
-            )
-            nonce = derive_chunk_nonce(master_key, file_sha, i)
-            pt = aead.decrypt(nonce, ct, i.to_bytes(4, "big"))
-            lo = (start % cs) if i == first_chunk else 0
-            hi = ((end % cs) + 1) if i == last_chunk else len(pt)
-            yield pt[lo:hi]
-
-    resp = Response(stream_with_context(gen()), status=206, mimetype=mime)
+def _range_response(storage, file_key, header, master_key, file_sha,
+                    start, end, mime):
+    gen = _stream_range(
+        storage, file_key, header, master_key, file_sha, start, end,
+    )
+    resp = Response(stream_with_context(gen), status=206, mimetype=mime)
     resp.headers["Content-Range"] = f"bytes {start}-{end}/{header.plaintext_size}"
     resp.headers["Content-Length"] = str(end - start + 1)
     resp.headers["Accept-Ranges"] = "bytes"
+    resp.headers["Cache-Control"] = _CACHE_CONTROL
     return resp
