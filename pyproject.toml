@@ -11,6 +11,14 @@ dependencies = [
     "Flask>=3.0,<4.0",
     "Flask-Limiter>=3.5,<4",
     "SQLAlchemy>=2.0,<3.0",
+    # Explicit greenlet: SQLAlchemy declares greenlet>=1 as a conditional
+    # transitive (only on x86_64/aarch64/etc, not on macOS arm64). When
+    # the lockfile is generated on macOS arm64, greenlet is OMITTED →
+    # `pip install --require-hashes` fails on Linux x86_64 (Railway)
+    # because the Linux sqlalchemy wheel pulls greenlet unpinned. Pinning
+    # it as a direct dep forces inclusion in the lock with == + hash on
+    # every platform.
+    "greenlet>=3,<4",
     "Flask-WTF>=1.2,<2.0",
     "cryptography>=42,<47",
     "argon2-cffi>=23,<24",
