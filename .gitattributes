@@ -1,0 +1,13 @@
+# Force LF for vendored JS/CSS so the SHA-256 integrity manifest in
+# flexlog/static/vendor/INTEGRITY.txt matches across platforms.
+#
+# Background: with core.autocrlf=input on macOS, a vendored file with
+# CRLF in its tarball gets committed as LF in git's blob but stays
+# CRLF in the working tree. The manifest is computed from the working
+# tree → matches on macOS, fails on Linux (where git checks out the
+# blob bytes directly = LF). Forcing LF here removes the ambiguity.
+flexlog/static/vendor/**/*.js text eol=lf
+flexlog/static/vendor/**/*.css text eol=lf
+
+# Project Python sources stay LF as well (defense in depth).
+*.py text eol=lf
