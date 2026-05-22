@@ -22,7 +22,7 @@ info:
 
     See `docs/1v1_Journal_PRD_Engineering_Ready_v3_File_Based_DB.md`
     for product requirements and `CLAUDE.md` for the architecture map.
-  version: "1.0.0"
+  version: "1.1.0"
   license:
     name: see LICENSE in repo root
 

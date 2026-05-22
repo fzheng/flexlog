@@ -291,12 +291,30 @@ Status bar surfaces `last_backup_at` as a "Backup: Xs ago" chip when the worker 
 
 ### Auth hardening for public exposure (v1.0.0)
 
-When deploying to Railway (or any public-internet host), set:
+When deploying to a public-internet host (Railway, or self-host with Tailscale Funnel), set:
 
-- `FLEXLOG_BEHIND_TLS=1` — enables `werkzeug.ProxyFix(x_for=1, x_proto=1, x_host=1)` (Railway is a single proxy hop), forces `SESSION_COOKIE_SECURE=True`, and adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` to every response.
-- `FLEXLOG_RATE_LIMIT=1` — enables in-memory Flask-Limiter with `5 per hour` on `landing.submit` (POST /). Disabled by default; the test suite stays unaffected.
+- `FLEXLOG_BEHIND_TLS=1` — enables `werkzeug.ProxyFix(x_for=1, x_proto=1, x_host=1)` (Railway + Tailscale Funnel are both single-hop proxies), forces `SESSION_COOKIE_SECURE=True`, and adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` to every response.
 
 Plus `/robots.txt` returns `Disallow: /` and the landing page has `<meta name="robots" content="noindex, nofollow">` — a leaked URL won't end up in search results.
+
+No application-level rate limiting. Argon2id KDF cost (~500ms per attempt) is the brute-force defense; the user's password strength is the load-bearing control for both Railway and self-host deployments.
+
+### Self-host deployment (v1.1.0)
+
+For sensitive content where the cloud-operator-with-runtime threat is in scope, flexlog supports self-hosting on macOS with rclone-based encrypted offsite backup. **Zero application code changes** — the existing `FLEXLOG_STORAGE_BACKEND=local` code path is the self-host runtime. The v1.1.0 deliverables are purely operational:
+
+- `scripts/launchd-templates/` — three user-level launchd plists (gunicorn / 15-min rclone backup / daily prune) with `{{...}}` placeholders
+- `scripts/install_launch_agents.py` — Python installer that renders templates with per-user paths, validates the rendered XML parses as a plist BEFORE writing, then `launchctl bootstrap`s them. `scripts/uninstall_launch_agents.py` is the inverse.
+- `scripts/backup-to-railway.sh` — rclone sync to `$RCLONE_REMOTE/live/` with `--backup-dir archive/<ts>/` versioning. Pings healthchecks.io `/start`+success+`/fail`.
+- `scripts/prune-old-backups.sh` — `rclone delete --min-age 30d` against `archive/` only; `live/` is never touched here.
+- `scripts/recovery-drill.sh` — materializes the latest backup into a temp dir and starts a test flexlog on port 5151 (configurable via `DRILL_PORT`) for manual verification. `trap cleanup EXIT INT TERM` for safe cleanup on any exit path.
+- `docs/SELF_HOSTING.md` — first-time-setup walkthrough (FileVault → Homebrew → flexlog → Tailscale → rclone → first-run password → launch agents → sleep config → Funnel → verify → first backup).
+- `docs/RECOVERY.md` — four-scenario runbook (lost Mac, corrupted live, point-in-time rollback, catastrophic) + quarterly drill protocol. Every command is paste-able; prerequisites list what must live OFF the Mac (in a password manager).
+- `Makefile` targets: `self-host-install`, `self-host-uninstall`, `self-host-backup`, `self-host-drill`.
+
+The recovery doc is the safety net — when changing self-host scripts, update the matching steps in `docs/RECOVERY.md` in the same commit. The quarterly drill is the only thing that catches silently-broken backups before you need them.
+
+The Railway-as-runtime artifacts (`Dockerfile`, `railway.json`, `scripts/restore_media_from_backup.py`) stay in the repo as the cloud-deployment alternative — both deployment paths share the same application code.
 
 ### Status bar (v0.8.0)
 

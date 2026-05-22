@@ -3,6 +3,69 @@
 Release notes for flexlog. Newest first. Each section describes the
 shipped functionality, breaking changes (if any), and migration notes.
 
+## v1.1.0 — Self-hosting on macOS with offsite backup
+
+For users whose threat model can't accept "the cloud operator with
+runtime access can read my data" (corporate-sensitive interview
+content, journalism material, etc.), flexlog now supports a
+self-host architecture where:
+
+- **Your Mac is the runtime.** flexlog runs as a user-level launchd
+  agent. Gunicorn binds `127.0.0.1:5050` (loopback only — LAN cannot
+  bypass). FileVault on the Mac plus flexlog's own AES-GCM/SQLCipher
+  gives you defense in depth.
+- **Tailscale Funnel is the public path.** TLS terminates on YOUR
+  Mac (not on Tailscale's edge — they only route TCP). Meaningfully
+  better than a typical cloud edge that holds the cert.
+- **Backups go to a Railway storage bucket** (or any S3-compat)
+  via rclone every 15 minutes, with `--backup-dir` versioning
+  + 30-day archive retention + healthchecks.io dead-man's-switch
+  monitoring. The backup bucket sees only encrypted bytes; the
+  bucket operator cannot decrypt without your password.
+
+What's new:
+
+- **`scripts/launchd-templates/`** — three plist templates (app,
+  backup, prune) with `{{...}}` placeholders.
+- **`scripts/install_launch_agents.py`** — Python installer that
+  renders templates per-user, validates the rendered XML parses as
+  a plist BEFORE writing, then loads via `launchctl bootstrap`.
+  Idempotent (`bootout` first). 10 unit tests cover the render +
+  write paths.
+- **`scripts/uninstall_launch_agents.py`** — clean removal of the
+  three agents without touching data / logs / rclone state.
+- **`scripts/backup-to-railway.sh`** — rclone sync with healthchecks
+  start/success/fail pings, strict env validation, shellcheck-clean.
+- **`scripts/prune-old-backups.sh`** — daily 30-day prune of the
+  archive prefix only.
+- **`scripts/recovery-drill.sh`** — quarterly drill helper:
+  materializes the latest backup to a temp dir + starts a test
+  flexlog on port 5151 for manual verification.
+- **`docs/SELF_HOSTING.md`** — 11-step first-time setup walkthrough
+  (FileVault → Homebrew → flexlog → Tailscale + Funnel → rclone →
+  first-run password → launch agents → sleep config → verify).
+  Plus password-strength guidance, operational procedures, trust-model
+  summary, cost comparison.
+- **`docs/RECOVERY.md`** — four-scenario runbook (lost Mac, corrupted
+  live data, point-in-time rollback, catastrophic loss) with
+  paste-able commands at every step. Prerequisites section spells
+  out what must live OFF the Mac. Includes the quarterly drill
+  protocol — the only thing that catches silently-broken backups
+  before you need them.
+- **`make self-host-{install,uninstall,backup,drill}`** targets.
+- **`docs/DEPLOYMENT.md`** banner clarifies it's the Railway-specific
+  guide; cross-links to `SELF_HOSTING.md` as the alternative.
+
+**Zero application code changes.** The existing
+`FLEXLOG_STORAGE_BACKEND=local` code path is the self-host runtime.
+The Railway-as-runtime artifacts (`Dockerfile`, `railway.json`,
+`scripts/restore_media_from_backup.py`) stay in the repo — both
+deployment paths share the same application code.
+
+For the design rationale + threat-model analysis comparing the two
+deployment modes, see `docs/superpowers/specs/2026-05-21-self-host-with-railway-backup-design.md`
+in your local checkout.
+
 ## v1.0.0 — Cloud Deployment (Railway)
 
 flexlog is now deployable to [Railway](https://railway.com) as a
