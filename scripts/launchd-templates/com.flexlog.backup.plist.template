@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.flexlog.backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{FLEXLOG_REPO_DIR}}/scripts/backup-to-railway.sh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FLEXLOG_DATA_DIR</key>
+    <string>{{FLEXLOG_DATA_DIR}}</string>
+    <key>FLEXLOG_LOG_DIR</key>
+    <string>{{FLEXLOG_LOG_DIR}}</string>
+    <key>HEALTHCHECK_URL</key>
+    <string>{{HEALTHCHECK_URL}}</string>
+    <key>RCLONE_REMOTE</key>
+    <string>{{RCLONE_REMOTE}}</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>{{FLEXLOG_LOG_DIR}}/backup.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{FLEXLOG_LOG_DIR}}/backup.stderr.log</string>
+</dict>
+</plist>

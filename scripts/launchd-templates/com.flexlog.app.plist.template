@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.flexlog.app</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>{{FLEXLOG_REPO_DIR}}/.venv/bin/gunicorn</string>
+    <string>--bind</string>
+    <string>127.0.0.1:5050</string>
+    <string>--workers</string>
+    <string>1</string>
+    <string>--threads</string>
+    <string>4</string>
+    <string>--worker-class</string>
+    <string>gthread</string>
+    <string>--timeout</string>
+    <string>1800</string>
+    <string>--graceful-timeout</string>
+    <string>30</string>
+    <string>--access-logfile</string>
+    <string>-</string>
+    <string>--error-logfile</string>
+    <string>-</string>
+    <string>flexlog.app:create_app()</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>{{FLEXLOG_REPO_DIR}}</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FLEXLOG_DATA_DIR</key>
+    <string>{{FLEXLOG_DATA_DIR}}</string>
+    <key>FLEXLOG_STORAGE_BACKEND</key>
+    <string>local</string>
+    <key>FLEXLOG_BEHIND_TLS</key>
+    <string>1</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>{{FLEXLOG_LOG_DIR}}/stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>{{FLEXLOG_LOG_DIR}}/stderr.log</string>
+</dict>
+</plist>
