@@ -1,3 +1,8 @@
+> **This guide covers Railway cloud deployment.** For self-hosting on
+> your own Mac with encrypted offsite backups (recommended for
+> sensitive content where you don't want a cloud operator to have
+> runtime access), see [`SELF_HOSTING.md`](SELF_HOSTING.md).
+
 # Deploying flexlog to Railway
 
 This guide walks through deploying flexlog as a single-user cloud

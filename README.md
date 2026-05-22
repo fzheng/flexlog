@@ -65,9 +65,17 @@ without restarting the app.
 
 - **Release notes:** see [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for
   per-version notes (v1.0.0 cloud deployment back to v0.3.0).
+- **Self-host on macOS (recommended for sensitive content):** see
+  [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md) for the step-by-step
+  walkthrough — your Mac runs flexlog; rclone backs the encrypted
+  data dir to a Railway storage bucket every 15 minutes; Tailscale
+  Funnel provides public HTTPS access.
 - **Cloud deployment (Railway):** see [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
   for the step-by-step walkthrough — Volume + two Storage Buckets,
   Dockerfile build, env vars, first-run setup, disaster recovery.
+- **Recovery procedures:** see [`docs/RECOVERY.md`](docs/RECOVERY.md)
+  for the four-scenario recovery runbook (lost Mac, corrupted live
+  data, point-in-time rollback, catastrophic loss).
 
 ## Features
 
