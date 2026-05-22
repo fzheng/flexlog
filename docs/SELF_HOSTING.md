@@ -101,9 +101,23 @@ If your tailnet doesn't have HTTPS enabled yet:
 - Enable "HTTPS Certificates" (one-time toggle)
 - Returns to your Mac in a moment — provisions ACME
 
-Enable Funnel:
+Enable Funnel for your tailnet:
 - Open https://login.tailscale.com/admin/acls/file
-- Add the Funnel grant (or use the Funnel toggle on the node)
+- Add a `nodeAttrs` block granting `funnel` to your Mac:
+  ```json
+  "nodeAttrs": [
+    { "target": ["<your-mac-hostname>"], "attr": ["funnel"] }
+  ]
+  ```
+- Save the policy file. (See [Tailscale Funnel docs](https://tailscale.com/kb/1223/funnel) for the current ACL syntax.)
+
+Then on the Mac, opt the port in to Funnel:
+
+```bash
+sudo tailscale funnel --bg 443 on
+```
+
+(`sudo` is required for binding port 443. Without this step, `tailscale serve` in step 9 will only be reachable from your tailnet, NOT from the public internet.)
 
 ### 5. Configure rclone
 
@@ -136,10 +150,10 @@ Before installing the launch agent, do the one-time first-run setup so
 the data dir exists with `kdf_params.json`.
 
 ```bash
-mkdir -p ~/Library/Application\ Support/flexlog
+DATA_DIR="$HOME/Library/Application Support/flexlog"
+mkdir -p "$DATA_DIR"
 
-FLEXLOG_DATA_DIR=~/Library/Application\ Support/flexlog \
-    make run &
+FLEXLOG_DATA_DIR="$DATA_DIR" make run &
 RUN_PID=$!
 sleep 3
 ```
@@ -287,10 +301,11 @@ dir, or rclone state.
 To fully tear down:
 
 ```bash
-rm -rf ~/Library/Application\ Support/flexlog        # data dir
-rm -rf ~/Library/Logs/flexlog                         # logs
-rm ~/.config/rclone/rclone.conf                       # rclone config
-tailscale serve --bg --remove https=443               # unbind Funnel
+rm -rf "$HOME/Library/Application Support/flexlog"   # data dir
+rm -rf "$HOME/Library/Logs/flexlog"                  # logs
+rm "$HOME/.config/rclone/rclone.conf"                # rclone config
+tailscale serve --bg --remove https=443              # unbind Funnel
+sudo tailscale funnel --bg 443 off                   # disable public reach
 ```
 
 ### Adding a second backup target

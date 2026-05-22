@@ -26,7 +26,7 @@ cleanup() {
     fi
     rm -rf "${TEMP_DIR}"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 echo "Recovery drill"
 echo "  repo:       ${REPO_DIR}"

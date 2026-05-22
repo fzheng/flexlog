@@ -294,8 +294,16 @@ loads + your data is back.
 
 ### Step 6 — Delete the broken copy (after a week, if no issues)
 
+First list to confirm what you're about to delete:
+
 ```bash
-rm -rf "${DATA_DIR}.broken.<timestamp>"
+ls -d "${DATA_DIR}".broken.*
+```
+
+If the glob matches only the directories you intend to remove:
+
+```bash
+rm -rf "${DATA_DIR}".broken.*
 ```
 
 ---
@@ -368,8 +376,12 @@ deleted session is back.
 ### Step 8 — Clean up the `.before-rollback-*` file (after a week)
 
 ```bash
-rm "${DATA_DIR}/data/encounters.db.before-rollback-*"
+ls "${DATA_DIR}/data/"encounters.db.before-rollback-*  # verify the glob first
+rm "${DATA_DIR}/data/"encounters.db.before-rollback-*
 ```
+
+(Note: the glob expands OUTSIDE the quoted prefix — quoting the wildcard
+itself would pass a literal `*` to `rm` and match nothing.)
 
 ---
 
