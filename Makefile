@@ -5,7 +5,8 @@ DATA_DIR     ?= $(CURDIR)/flexlog-data
 PORT         ?= 5050
 INSTALL_MARK := $(VENV)/.installed
 
-.PHONY: help install lock audit openapi run test test-cov smoke clean
+.PHONY: help install lock audit openapi run test test-cov smoke clean \
+        self-host-install self-host-uninstall self-host-backup self-host-drill
 
 help:
 	@echo "flexlog — make targets"
@@ -23,6 +24,12 @@ help:
 	@echo "  make openapi         validate docs/openapi.yaml + run drift tests"
 	@echo ""
 	@echo "  make clean           remove caches, build artifacts, and the venv"
+	@echo ""
+	@echo "Self-host targets (macOS launchd, rclone backup):"
+	@echo "  make self-host-install   install the three flexlog launchd agents"
+	@echo "  make self-host-uninstall uninstall the three flexlog launchd agents"
+	@echo "  make self-host-backup    trigger a manual backup run"
+	@echo "  make self-host-drill     run the quarterly recovery drill"
 	@echo ""
 	@echo "Override variables on the command line, e.g.:"
 	@echo "  make run DATA_DIR=/abs/path PORT=5151"
@@ -96,3 +103,22 @@ smoke: install
 clean:
 	rm -rf $(VENV) build dist *.egg-info .coverage .coverage.* htmlcov .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
+
+# ---------------------------------------------------------------- self-host
+
+self-host-install:  ## Install the three flexlog launchd agents on macOS
+	$(BIN)/python scripts/install_launch_agents.py
+
+self-host-uninstall:  ## Uninstall the three flexlog launchd agents
+	$(BIN)/python scripts/uninstall_launch_agents.py
+
+self-host-backup:  ## Trigger a manual backup run (same as the launchd agent)
+	@launchctl kickstart -k gui/$$(id -u)/com.flexlog.backup
+	@echo "backup triggered. Tail ~/Library/Logs/flexlog/backup.stderr.log for progress."
+
+self-host-drill:  ## Run the quarterly recovery drill (RCLONE_REMOTE required)
+	@if [ -z "$$RCLONE_REMOTE" ]; then \
+		echo "set RCLONE_REMOTE first, e.g. RCLONE_REMOTE=railway-backup:flexlog-home-backup make self-host-drill"; \
+		exit 1; \
+	fi
+	./scripts/recovery-drill.sh
